@@ -4,3 +4,6 @@ Thumbs.db
 *.log
 .env
 dist/
+
+# Local Netlify folder
+.netlify
