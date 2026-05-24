@@ -243,15 +243,22 @@ const P2_COLORS = {
   wing: '#993322', glow: '#ff4400', flame: '#ff8800', trail: '#882200'
 };
 
-const stars = Array.from({length:150}, () => ({
-  x: Math.random()*2000, y: Math.random()*1000,
-  s: Math.random()*1.5+0.3, sp: Math.random()*1.5+0.5
-}));
+// 3-layer parallax stars
+const starLayers = [
+  Array.from({length:90},  () => ({x:Math.random()*1920, y:Math.random()*1080, s:Math.random()*0.6+0.2, sp:0.1+Math.random()*0.1,  b:0.25+Math.random()*0.25})),
+  Array.from({length:55},  () => ({x:Math.random()*1920, y:Math.random()*1080, s:Math.random()*1.0+0.4, sp:0.45+Math.random()*0.25, b:0.45+Math.random()*0.35})),
+  Array.from({length:25},  () => ({x:Math.random()*1920, y:Math.random()*1080, s:Math.random()*1.6+0.7, sp:1.0+Math.random()*0.5,  b:0.65+Math.random()*0.35})),
+];
+const dustParticles = Array.from({length:70}, () => ({x:Math.random()*1920, y:Math.random()*1080, s:Math.random()*0.7+0.2, sp:0.04+Math.random()*0.09, a:0.06+Math.random()*0.14}));
+const planet = {
+  x: 1440, y: 160, r: 72, sp: 0.018,
+  craters: Array.from({length:5}, () => ({ax:(Math.random()-0.5)*100, ay:(Math.random()-0.5)*80, r:4+Math.random()*10}))
+};
 
 let numPlayers = 1;
 let players = [];
 let asteroids, bullets, boss, particles;
-let score, gameActive, bossSpawned;
+let score = 0, gameActive = false, bossSpawned = false;
 let keys = {};
 let touchUp=false, touchDown=false, touchLeft=false, touchRight=false;
 let highScore = 0;
@@ -409,32 +416,66 @@ function drawCaveWalls() {
 // --- Draw helpers ---
 
 function spawnExplosion(x, y, color='#ff8844') {
-  for (let i=0; i<12; i++) {
-    const angle = Math.random()*Math.PI*2, speed = 1+Math.random()*4;
-    particles.push({ x, y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, life:1, color, size:2+Math.random()*4 });
-  }
+  // Flash
+  for (let i=0;i<8;i++) { const a=Math.random()*Math.PI*2,sp=4+Math.random()*6;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,decay:0.09,color:'#ffffff',size:3+Math.random()*3}); }
+  // Fireball
+  for (let i=0;i<22;i++) { const a=Math.random()*Math.PI*2,sp=1+Math.random()*4.5;
+    const fc=['#ff8800','#ff4400','#ffcc00','#ff6600','#ffaa00'][Math.floor(Math.random()*5)];
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,decay:0.02,color:fc,size:5+Math.random()*9}); }
+  // Debris chunks
+  for (let i=0;i<12;i++) { const a=Math.random()*Math.PI*2,sp=0.5+Math.random()*3;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp+0.4,life:1,decay:0.014,color:'#776655',size:2+Math.random()*4}); }
+  // Smoke
+  for (let i=0;i<6;i++) { const a=Math.random()*Math.PI*2,sp=0.3+Math.random()*1.2;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-0.6,life:0.65,decay:0.007,color:'#2a1a14',size:10+Math.random()*16}); }
 }
 
 function drawShip(p, alpha=1) {
   const c = p.colors;
+  const spd = Math.hypot(p.vx, p.vy);
+  const pulse = 0.55 + 0.45*Math.sin(Date.now()*0.011);
   ctx.save(); ctx.globalAlpha = alpha; ctx.translate(p.x, p.y);
-  ctx.shadowBlur = 15; ctx.shadowColor = c.glow;
-  ctx.fillStyle = c.body;
-  ctx.beginPath(); ctx.ellipse(-18, 0, 10, 5, 0, 0, Math.PI*2); ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = c.hull;
-  ctx.beginPath(); ctx.moveTo(22,0); ctx.lineTo(-14,-12); ctx.lineTo(-10,0); ctx.lineTo(-14,12); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = c.cockpit;
-  ctx.beginPath(); ctx.ellipse(6,-2,8,5,-0.3,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle = c.wing; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0,-6); ctx.lineTo(-12,-12); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0,6); ctx.lineTo(-12,12); ctx.stroke();
-  const flameLen = 12 + Math.random()*8;
-  const grad = ctx.createLinearGradient(-14,0,-14-flameLen,0);
-  grad.addColorStop(0,'#ffffff'); grad.addColorStop(0.3, c.flame); grad.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath(); ctx.moveTo(-14,-5); ctx.lineTo(-14-flameLen,0); ctx.lineTo(-14,5); ctx.closePath(); ctx.fill();
-  ctx.restore();
+
+  // Engine nacelles
+  ctx.shadowBlur = 0; ctx.fillStyle = c.wing;
+  ctx.beginPath(); ctx.ellipse(-7,-12,11,3.5,0.12,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-7,12,11,3.5,-0.12,0,Math.PI*2); ctx.fill();
+
+  // Main hull
+  ctx.shadowBlur = 10; ctx.shadowColor = c.glow; ctx.fillStyle = c.hull;
+  ctx.beginPath(); ctx.moveTo(24,0); ctx.lineTo(9,-9); ctx.lineTo(-16,-8); ctx.lineTo(-21,0); ctx.lineTo(-16,8); ctx.lineTo(9,9); ctx.closePath(); ctx.fill();
+
+  // Hull panel lines
+  ctx.shadowBlur=0; ctx.strokeStyle=c.body; ctx.lineWidth=1; ctx.globalAlpha=alpha*0.55;
+  ctx.beginPath(); ctx.moveTo(7,-7); ctx.lineTo(-9,-7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(7,7); ctx.lineTo(-9,7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-2,-7); ctx.lineTo(-2,7); ctx.stroke();
+  ctx.globalAlpha=alpha;
+
+  // Cockpit canopy
+  ctx.shadowBlur=8; ctx.shadowColor='#88eeff'; ctx.fillStyle=c.cockpit;
+  ctx.beginPath(); ctx.ellipse(10,-2,7,4,-0.25,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(200,245,255,0.28)';
+  ctx.beginPath(); ctx.ellipse(11,-3,3.5,2,-0.3,0,Math.PI*2); ctx.fill();
+
+  // Engine glow rings
+  const eg = Math.min(1,spd*0.3+0.45)*pulse;
+  ctx.shadowBlur=14*eg; ctx.shadowColor=c.flame; ctx.strokeStyle=c.flame; ctx.lineWidth=1.8; ctx.globalAlpha=alpha*eg;
+  ctx.beginPath(); ctx.ellipse(-18,-12,3.5,2.5,0,0,Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(-18,12,3.5,2.5,0,0,Math.PI*2); ctx.stroke();
+  ctx.globalAlpha=alpha;
+
+  // Thruster flames (top + bottom nacelle)
+  const fl = 9+spd*3.5+Math.random()*5;
+  ctx.shadowBlur=8; ctx.shadowColor=c.flame;
+  [[-12],[12]].forEach(([ny]) => {
+    const fg=ctx.createLinearGradient(-18,ny,-18-fl,ny);
+    fg.addColorStop(0,'#ffffff'); fg.addColorStop(0.22,c.flame); fg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=fg; ctx.beginPath(); ctx.moveTo(-18,ny-3); ctx.lineTo(-18-fl,ny); ctx.lineTo(-18,ny+3); ctx.closePath(); ctx.fill();
+  });
+
+  ctx.shadowBlur=0; ctx.restore();
 }
 
 function drawAsteroid(a) {
@@ -442,14 +483,28 @@ function drawAsteroid(a) {
   ctx.beginPath(); ctx.moveTo(a.pts[0].dx, a.pts[0].dy);
   for (let i=1; i<a.pts.length; i++) ctx.lineTo(a.pts[i].dx, a.pts[i].dy);
   ctx.closePath();
-  const grad = ctx.createRadialGradient(0,0,a.size*0.1,0,0,a.size);
-  grad.addColorStop(0,'#887766'); grad.addColorStop(0.6,'#665544'); grad.addColorStop(1,'#443322');
+  const grad = ctx.createRadialGradient(-a.size*0.2,-a.size*0.2,a.size*0.05,0,0,a.size);
+  grad.addColorStop(0,'#7a7060'); grad.addColorStop(0.45,'#4a4030'); grad.addColorStop(1,'#252015');
   ctx.fillStyle = grad; ctx.fill();
-  ctx.strokeStyle = '#998877'; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.strokeStyle = '#332211'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#5a5040'; ctx.lineWidth = 1.5; ctx.stroke();
+  // Shadow side
+  const shad = ctx.createRadialGradient(a.size*0.3,a.size*0.3,0,a.size*0.3,a.size*0.3,a.size*1.1);
+  shad.addColorStop(0,'rgba(0,0,0,0)'); shad.addColorStop(0.6,'rgba(0,0,0,0.22)'); shad.addColorStop(1,'rgba(0,0,0,0.52)');
+  ctx.fillStyle=shad; ctx.beginPath(); ctx.moveTo(a.pts[0].dx, a.pts[0].dy);
+  for (let i=1; i<a.pts.length; i++) ctx.lineTo(a.pts[i].dx, a.pts[i].dy);
+  ctx.closePath(); ctx.fill();
+  // Highlight
+  ctx.fillStyle='rgba(255,245,230,0.08)';
+  ctx.beginPath(); ctx.ellipse(-a.size*0.22,-a.size*0.22,a.size*0.28,a.size*0.18,-0.5,0,Math.PI*2); ctx.fill();
+  // Surface cracks
+  ctx.strokeStyle='#1a1510'; ctx.lineWidth=1;
   a.cracks.forEach(cr => { ctx.beginPath(); ctx.moveTo(cr.ax,cr.ay); ctx.lineTo(cr.bx,cr.by); ctx.stroke(); });
-  ctx.fillStyle = 'rgba(255,240,220,0.15)';
-  ctx.beginPath(); ctx.ellipse(-a.size*0.2,-a.size*0.2,a.size*0.3,a.size*0.2,-0.5,0,Math.PI*2); ctx.fill();
+  // Craters
+  if (a.craters) a.craters.forEach(cr => {
+    ctx.beginPath(); ctx.arc(cr.cx,cr.cy,cr.r,0,Math.PI*2);
+    ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fill();
+    ctx.strokeStyle='rgba(150,140,120,0.35)'; ctx.lineWidth=0.8; ctx.stroke();
+  });
   ctx.restore();
 }
 
@@ -499,11 +554,11 @@ function drawBullet(bl) {
 function spawnAsteroid() {
   const size = 20 + Math.random()*30;
   const speed = (1.5 + score/200) * (0.7 + Math.random()*0.6);
-  const numPoints = 7 + Math.floor(Math.random()*4);
+  const numPoints = 10 + Math.floor(Math.random()*6);
   const pts = [];
   for (let i=0; i<numPoints; i++) {
-    const angle = (i/numPoints)*Math.PI*2;
-    const r = size * (0.7 + Math.random()*0.4);
+    const angle = (i/numPoints)*Math.PI*2 + (Math.random()-0.5)*(Math.PI/numPoints)*0.8;
+    const r = size * (0.5 + Math.random()*0.65);
     pts.push({ dx: Math.cos(angle)*r, dy: Math.sin(angle)*r });
   }
   asteroids.push({
@@ -514,6 +569,9 @@ function spawnAsteroid() {
     cracks: Array.from({length:3}, () => ({
       ax: (Math.random()-0.5)*size*0.5, ay: (Math.random()-0.5)*size*0.5,
       bx: (Math.random()-0.5)*size*0.8, by: (Math.random()-0.5)*size*0.8
+    })),
+    craters: Array.from({length:2+Math.floor(Math.random()*2)}, () => ({
+      cx: (Math.random()-0.5)*size*0.7, cy: (Math.random()-0.5)*size*0.7, r: 2+Math.random()*size*0.12
     }))
   });
 }
@@ -548,19 +606,54 @@ function endGame() {
 }
 
 function gameLoop(ts) {
+  requestAnimationFrame(gameLoop);
+  try {
   const dt = Math.min(ts - lastTime, 50);
   lastTime = ts;
 
-  ctx.fillStyle = '#000010'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#000008'; ctx.fillRect(0,0,W,H);
 
-  stars.forEach(s => {
-    s.x -= s.sp * (1 + score/500);
-    if (s.x < 0) { s.x = W+10; s.y = Math.random()*H; }
-    ctx.fillStyle = `rgba(255,255,255,${0.3+s.s*0.4})`;
-    ctx.beginPath(); ctx.arc(s.x%W, s.y%H, s.s, 0, Math.PI*2); ctx.fill();
+  // Nebula clouds
+  [[W*0.18,H*0.32,W*0.28,H*0.22,'75,30,120',0.055],[W*0.62,H*0.58,W*0.34,H*0.26,'15,50,130',0.05],[W*0.42,H*0.82,W*0.22,H*0.2,'55,15,95',0.04]].forEach(([nx,ny,rx,ry,col,a]) => {
+    ctx.save(); ctx.translate(nx,ny); ctx.scale(rx/110,ry/110);
+    const ng=ctx.createRadialGradient(0,0,0,0,0,110); ng.addColorStop(0,`rgba(${col},${a})`); ng.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=ng; ctx.beginPath(); ctx.arc(0,0,110,0,Math.PI*2); ctx.fill(); ctx.restore();
   });
 
-  if (!gameActive) { requestAnimationFrame(gameLoop); return; }
+  // Distant planet
+  { const psp = 1+score/500; planet.x -= planet.sp*psp; if (!isFinite(planet.x) || planet.x < -planet.r*3) planet.x = W+planet.r*2;
+    const px=planet.x, py=planet.y, pr=planet.r;
+    const pg=ctx.createRadialGradient(px-pr*0.35,py-pr*0.35,pr*0.05,px,py,pr);
+    pg.addColorStop(0,'#9aacdc'); pg.addColorStop(0.4,'#4a5f8a'); pg.addColorStop(1,'#0c0c24');
+    ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2); ctx.fillStyle=pg; ctx.fill();
+    const ag=ctx.createRadialGradient(px,py,pr*0.82,px,py,pr*1.1);
+    ag.addColorStop(0,'rgba(80,100,255,0)'); ag.addColorStop(0.6,'rgba(80,100,200,0.12)'); ag.addColorStop(1,'rgba(80,100,200,0)');
+    ctx.beginPath(); ctx.arc(px,py,pr*1.1,0,Math.PI*2); ctx.fillStyle=ag; ctx.fill();
+    ctx.save(); ctx.translate(px,py); ctx.scale(1,0.22);
+    ctx.strokeStyle='rgba(165,180,225,0.28)'; ctx.lineWidth=pr*0.32/0.22;
+    ctx.beginPath(); ctx.arc(0,0,pr*1.58,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle='rgba(140,155,205,0.14)'; ctx.lineWidth=pr*0.16/0.22;
+    ctx.beginPath(); ctx.arc(0,0,pr*1.85,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+    planet.craters.forEach(cr => {
+      ctx.beginPath(); ctx.arc(px+cr.ax,py+cr.ay,cr.r,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,0,20,0.28)'; ctx.fill();
+      ctx.strokeStyle='rgba(150,170,220,0.15)'; ctx.lineWidth=1; ctx.stroke();
+    });
+  }
+
+  // 3-layer parallax stars + space dust
+  const spMul = 1+score/500;
+  starLayers.forEach(layer => layer.forEach(s => {
+    s.x -= s.sp*spMul; if (s.x < 0) { s.x = W+2; s.y = Math.random()*H; }
+    ctx.fillStyle=`rgba(255,255,255,${s.b})`; ctx.beginPath(); ctx.arc(s.x,s.y,s.s,0,Math.PI*2); ctx.fill();
+  }));
+  dustParticles.forEach(d => {
+    d.x -= d.sp*spMul; if (d.x < 0) { d.x = W+2; d.y = Math.random()*H; }
+    ctx.fillStyle=`rgba(200,210,255,${d.a})`; ctx.beginPath(); ctx.arc(d.x,d.y,d.s,0,Math.PI*2); ctx.fill();
+  });
+
+  if (!gameActive) { return; }
 
   // --- Player input & movement ---
   const p1 = players[0];
@@ -584,13 +677,13 @@ function gameLoop(ts) {
     const slideOffset = cave.slideOffset || 0;
     const topEdge = cave.center - cave.gap / 2 - slideOffset;
     const botEdge = cave.center + cave.gap / 2 + slideOffset;
-    // Turret shooting — screen space: vx: 0 keeps bullet at fixed x on screen, only vy moves it
+    // Turret shooting — screen space: vx: -3 fires diagonally left, vy moves up or down
     cave.turrets.forEach(t => {
       t.y = t.wall === 'top' ? topEdge : botEdge;
       t.timer++;
       if (t.timer >= t.interval && t.x > 0 && t.x < W && slideOffset <= 0) {
         t.timer = 0; sfx('shoot');
-        bullets.push({ x: t.x, y: t.y, vx: 0, vy: t.wall === 'top' ? 4 : -4 });
+        bullets.push({ x: t.x, y: t.y, vx: -3, vy: t.wall === 'top' ? 4 : -4 });
       }
     });
 
@@ -731,7 +824,7 @@ function gameLoop(ts) {
   });
 
   particles = particles.filter(p => {
-    p.x+=p.vx; p.y+=p.vy; p.life-=0.025; p.vx*=0.97; p.vy*=0.97;
+    p.x+=p.vx; p.y+=p.vy; p.life-=(p.decay||0.025); p.vx*=0.97; p.vy*=0.97;
     if (p.life<=0) return false;
     ctx.save(); ctx.globalAlpha=p.life; ctx.fillStyle=p.color;
     ctx.beginPath(); ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2); ctx.fill(); ctx.restore();
@@ -739,7 +832,7 @@ function gameLoop(ts) {
   });
 
   document.getElementById('score-display').textContent = 'SCORE: ' + Math.floor(score);
-  requestAnimationFrame(gameLoop);
+  } catch(e) { console.error('gameLoop error:', e); }
 }
 
 function startGame(n) {
