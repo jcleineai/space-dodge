@@ -258,6 +258,7 @@ let highScore = 0;
 let asteroidTimer = 0;
 let lastTime = 0;
 let gameTime = 0;
+let debugMode = false;
 let cave = null;
 let caveTime = 0;
 
@@ -306,7 +307,7 @@ function initCave() {
   const turrets = [];
   for (let i = 0; i < 5; i++) turrets.push(makeTurret(W + 220 + i * 270 + Math.random() * 80));
   cave = {
-    gap: H * 0.72, center: H / 2, segW,
+    gap: H * 0.72, center: H / 2, segW, slideOffset: H,
     segs: Array.from({length: count}, (_, i) => makeCaveSeg(i * segW, segW)),
     turrets
   };
@@ -314,6 +315,7 @@ function initCave() {
 
 function updateCave(dt) {
   caveTime += dt * 0.001;
+  if (cave.slideOffset > 0) cave.slideOffset = Math.max(0, cave.slideOffset - H * dt / 2000);
   const speed = 2 + score / 400;
   cave.segs.forEach(s => s.x -= speed);
   while (cave.segs.length && cave.segs[0].x < -cave.segW - 10) cave.segs.shift();
@@ -329,8 +331,9 @@ function updateCave(dt) {
 }
 
 function drawTurret(t) {
-  const topEdge = cave.center - cave.gap / 2;
-  const botEdge = cave.center + cave.gap / 2;
+  const slideOffset = cave.slideOffset || 0;
+  const topEdge = cave.center - cave.gap / 2 - slideOffset;
+  const botEdge = cave.center + cave.gap / 2 + slideOffset;
   const isTop = t.wall === 'top';
   const ty = isTop ? topEdge : botEdge;
   const dir = isTop ? 1 : -1;
@@ -351,8 +354,9 @@ function drawTurret(t) {
 
 function drawCaveWalls() {
   if (!cave || cave.segs.length < 2) return;
-  const topEdge = cave.center - cave.gap / 2;
-  const botEdge = cave.center + cave.gap / 2;
+  const slideOffset = cave.slideOffset || 0;
+  const topEdge = cave.center - cave.gap / 2 - slideOffset;
+  const botEdge = cave.center + cave.gap / 2 + slideOffset;
   const { segs, segW } = cave;
   ctx.save();
 
@@ -473,6 +477,19 @@ function drawBoss(b) {
 }
 
 function drawBullet(bl) {
+  if (debugMode) {
+    // no save/restore, no transforms — draw everything flat in screen space
+    if (bl.trail && bl.trail.length > 1) {
+      ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2; ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.moveTo(bl.trail[0].x, bl.trail[0].y);
+      bl.trail.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+    }
+    // circle drawn at exactly bl.x, bl.y — same coords as trail endpoint
+    ctx.fillStyle = '#ff0000'; ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.arc(bl.x, bl.y, 10, 0, Math.PI*2); ctx.fill();
+    return;
+  }
   ctx.save(); ctx.shadowBlur = 8; ctx.shadowColor = '#ffff44';
   ctx.fillStyle = '#ffff44'; ctx.beginPath(); ctx.arc(bl.x,bl.y,4,0,Math.PI*2); ctx.fill();
   ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(bl.x,bl.y,2,0,Math.PI*2); ctx.fill();
@@ -564,17 +581,16 @@ function gameLoop(ts) {
   // Cave update (once, shared)
   if (cave) {
     updateCave(dt);
-    const topEdge = cave.center - cave.gap / 2;
-    const botEdge = cave.center + cave.gap / 2;
-
-    // Turret shooting
+    const slideOffset = cave.slideOffset || 0;
+    const topEdge = cave.center - cave.gap / 2 - slideOffset;
+    const botEdge = cave.center + cave.gap / 2 + slideOffset;
+    // Turret shooting — screen space: vx: 0 keeps bullet at fixed x on screen, only vy moves it
     cave.turrets.forEach(t => {
+      t.y = t.wall === 'top' ? topEdge : botEdge;
       t.timer++;
-      if (t.timer >= t.interval && t.x > 0 && t.x < W) {
+      if (t.timer >= t.interval && t.x > 0 && t.x < W && slideOffset <= 0) {
         t.timer = 0; sfx('shoot');
-        const ty = t.wall === 'top' ? topEdge : botEdge;
-        const vy = t.wall === 'top' ? 4 : -4;
-        bullets.push({ x: t.x, y: ty, vx: 0, vy });
+        bullets.push({ x: t.x, y: t.y, vx: 0, vy: t.wall === 'top' ? 4 : -4 });
       }
     });
 
@@ -688,10 +704,19 @@ function gameLoop(ts) {
     }
   }
 
+  if (cave) drawCaveWalls();
+
   // Bullets — move, draw, collide with all players
   bullets = bullets.filter(bl => {
     bl.x += bl.vx; bl.y += bl.vy;
     if (bl.x<-10||bl.x>W+10||bl.y<-10||bl.y>H+10) return false;
+    if (debugMode) {
+      if (!bl.trail) bl.trail = [];
+      bl.trail.push({ x: bl.x, y: bl.y });
+      const trailEnd = bl.trail[bl.trail.length - 1];
+      const tf = ctx.getTransform();
+      console.log(`trail_end:(${trailEnd.x.toFixed(1)},${trailEnd.y.toFixed(1)}) circle:(${bl.x.toFixed(1)},${bl.y.toFixed(1)}) vx:${bl.vx} vy:${bl.vy} | transform a:${tf.a.toFixed(2)} b:${tf.b.toFixed(2)} c:${tf.c.toFixed(2)} d:${tf.d.toFixed(2)} e:${tf.e.toFixed(1)} f:${tf.f.toFixed(1)}`);
+    }
     drawBullet(bl);
     for (const p of players) {
       if (!p.alive || p.invincible > 0) continue;
@@ -704,8 +729,6 @@ function gameLoop(ts) {
     }
     return true;
   });
-
-  if (cave) drawCaveWalls();
 
   particles = particles.filter(p => {
     p.x+=p.vx; p.y+=p.vy; p.life-=0.025; p.vx*=0.97; p.vy*=0.97;
@@ -732,7 +755,10 @@ function startGame(n) {
 document.getElementById('btn-1p').onclick = () => { if (!gameActive) startGame(1); };
 document.getElementById('btn-2p').onclick = () => { if (!gameActive) startGame(2); };
 
-document.addEventListener('keydown', e => { keys[e.key] = true; });
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === 'd' || e.key === 'D') { debugMode = !debugMode; console.log('Debug mode:', debugMode); }
+});
 document.addEventListener('keyup',   e => { keys[e.key] = false; });
 
 canvas.addEventListener('touchstart', e => {
