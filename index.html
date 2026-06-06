@@ -28,7 +28,10 @@
   #boss-warning .warn-main { font-size: 32px; color: #ff4466; font-weight: bold; letter-spacing: 4px; text-shadow: 0 0 20px #ff4466; animation: flash 0.4s infinite; }
   #boss-warning .warn-sub { font-size: 14px; color: #ffaa44; letter-spacing: 2px; margin-top: 10px; text-shadow: 0 0 10px #ffaa44; }
   @keyframes flash { 0%,100%{opacity:1} 50%{opacity:0} }
+  .mode-btn.online { border-color: #44aaff; color: #44aaff; background: #44aaff22; }
+  .mode-btn.online:hover { background: #44aaff44; }
 </style>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -50,11 +53,20 @@
   <div class="score-info" id="last-score" style="display:none"></div>
   <div class="high-score-info" id="hi-score-display" style="display:none"></div>
   <div class="mode-btns">
-    <button class="mode-btn" id="btn-1p">1 PLAYER 🚀</button>
-    <button class="mode-btn p2" id="btn-2p">2 PLAYERS 🚀</button>
+    <button class="mode-btn" id="btn-1p">SOLO 🚀</button>
+    <button class="mode-btn online" id="btn-host">HOST CO-OP 🌐</button>
+    <button class="mode-btn online" id="btn-join-online">JOIN CO-OP 🌐</button>
   </div>
-  <p style="font-size:12px; color:#555">
-    P1: W·A·S·D &nbsp;|&nbsp; P2: ↑↓←→ &nbsp;|&nbsp; Mobile: tap quadrants
+  <div id="online-panel" style="display:none; text-align:center; margin:10px 0 6px;">
+    <div id="online-status" style="color:#888; font-size:12px; margin-bottom:8px; letter-spacing:1px;"></div>
+    <div id="host-id-display" style="display:none; font-size:28px; color:#44ffaa; letter-spacing:8px; font-weight:bold; text-shadow:0 0 16px #44ffaa88;"></div>
+    <div id="join-input-row" style="display:none;">
+      <input id="peer-id-input" placeholder="ENTER CODE" maxlength="30" style="background:#000; border:2px solid #44aaff; color:#44ffaa; padding:8px 14px; font-family:'Courier New',monospace; font-size:18px; letter-spacing:4px; border-radius:4px; text-align:center; width:190px; pointer-events:all; text-transform:uppercase;"/>
+      <button id="btn-join-connect" style="background:#44aaff22; border:2px solid #44aaff; color:#44aaff; padding:8px 16px; font-size:14px; cursor:pointer; border-radius:4px; font-family:'Courier New',monospace; margin-left:8px; pointer-events:all; letter-spacing:1px;">GO</button>
+    </div>
+  </div>
+  <p style="font-size:11px; color:#444; margin-top:4px;">
+    W·A·S·D to move &nbsp;|&nbsp; Mobile: tap quadrants
   </p>
 </div>
 <script>
@@ -265,6 +277,13 @@ let gameTime = 0;
 let debugMode = false;
 let cave = null;
 let caveTime = 0;
+
+// Online co-op state
+let peer = null, conn = null;
+let onlineMode = false; // false | 'host' | 'joiner'
+let remoteInput = { up: false, down: false, left: false, right: false };
+let remoteState = null;
+let lastStateSend = 0;
 
 function makePlayer(colors, startY) {
   return { x: 100, y: startY, vx: 0, vy: 0, trail: [], lives: 3, alive: true, invincible: 0, colors };
@@ -587,7 +606,7 @@ function updateHUD() {
   const p1h = ['','❤️','❤️ ❤️','❤️ ❤️ ❤️'];
   const p2h = ['','🧡','🧡 🧡','🧡 🧡 🧡'];
   document.getElementById('p1-lives').textContent = players[0] ? (p1h[Math.max(0, players[0].lives)] || '') : '';
-  if (numPlayers === 2 && players[1]) {
+  if (numPlayers === 2 && players[1] && onlineMode !== 'host') {
     document.getElementById('p2-lives').textContent = p2h[Math.max(0, players[1].lives)] || '';
   }
 }
@@ -650,6 +669,7 @@ function gameLoop(ts) {
     ctx.fillStyle=`rgba(200,210,255,${d.a})`; ctx.beginPath(); ctx.arc(d.x,d.y,d.s,0,Math.PI*2); ctx.fill();
   });
 
+  if (onlineMode === 'joiner') { renderJoinerFrame(dt, ts); return; }
   if (!gameActive) { return; }
 
   // --- Player input & movement ---
@@ -660,12 +680,19 @@ function gameLoop(ts) {
     if (keys['a'] || keys['A'] || touchLeft)  p1.vx -= 0.5;
     if (keys['d'] || keys['D'] || touchRight) p1.vx += 0.5;
   }
-  if (numPlayers === 2 && players[1].alive) {
+  if (numPlayers === 2 && players[1] && players[1].alive) {
     const p2 = players[1];
-    if (keys['ArrowUp'])    p2.vy -= 0.5;
-    if (keys['ArrowDown'])  p2.vy += 0.5;
-    if (keys['ArrowLeft'])  p2.vx -= 0.5;
-    if (keys['ArrowRight']) p2.vx += 0.5;
+    if (onlineMode === 'host') {
+      if (remoteInput.up)    p2.vy -= 0.5;
+      if (remoteInput.down)  p2.vy += 0.5;
+      if (remoteInput.left)  p2.vx -= 0.5;
+      if (remoteInput.right) p2.vx += 0.5;
+    } else {
+      if (keys['ArrowUp'])    p2.vy -= 0.5;
+      if (keys['ArrowDown'])  p2.vy += 0.5;
+      if (keys['ArrowLeft'])  p2.vx -= 0.5;
+      if (keys['ArrowRight']) p2.vx += 0.5;
+    }
   }
 
   // Cave update (once, shared)
@@ -696,8 +723,8 @@ function gameLoop(ts) {
     });
   }
 
-  // Move, clamp, draw each player
-  players.forEach(p => {
+  // Move, clamp, draw each player (host skips drawing P2 — joiner sees P2 only)
+  players.forEach((p, idx) => {
     if (!p.alive) return;
     p.vx *= 0.85; p.vy *= 0.85;
     p.x += p.vx; p.y += p.vy;
@@ -706,15 +733,18 @@ function gameLoop(ts) {
 
     p.trail.unshift({x: p.x, y: p.y});
     if (p.trail.length > 8) p.trail.pop();
-    p.trail.forEach((pt, i) => {
-      ctx.globalAlpha = (1 - i/8) * 0.3;
-      ctx.fillStyle = p.colors.trail;
-      ctx.beginPath(); ctx.arc(pt.x - i*4, pt.y, 4 - i*0.4, 0, Math.PI*2); ctx.fill();
-    });
-    ctx.globalAlpha = 1;
 
-    const alpha = p.invincible > 0 ? (Math.sin(p.invincible*0.5) > 0 ? 0.4 : 1) : 1;
-    drawShip(p, alpha);
+    const skipDraw = onlineMode === 'host' && idx === 1;
+    if (!skipDraw) {
+      p.trail.forEach((pt, i) => {
+        ctx.globalAlpha = (1 - i/8) * 0.3;
+        ctx.fillStyle = p.colors.trail;
+        ctx.beginPath(); ctx.arc(pt.x - i*4, pt.y, 4 - i*0.4, 0, Math.PI*2); ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+      const alpha = p.invincible > 0 ? (Math.sin(p.invincible*0.5) > 0 ? 0.4 : 1) : 1;
+      drawShip(p, alpha);
+    }
     if (p.invincible > 0) p.invincible--;
   });
 
@@ -829,21 +859,210 @@ function gameLoop(ts) {
   });
 
   document.getElementById('score-display').textContent = 'SCORE: ' + Math.floor(score);
+
+  // Send authoritative state to joiner
+  if (onlineMode === 'host' && conn && conn.open && ts - lastStateSend > 50) {
+    lastStateSend = ts;
+    try {
+      conn.send({
+        type: 'state',
+        p1: serializePlayer(players[0]),
+        p2: players[1] ? serializePlayer(players[1]) : null,
+        asteroids: asteroids.map(a => ({ x:a.x, y:a.y, rot:a.rot, size:a.size, pts:a.pts, cracks:a.cracks, craters:a.craters })),
+        bullets: bullets.map(b => ({ x:b.x, y:b.y, vx:b.vx, vy:b.vy })),
+        boss: boss ? { x:boss.x, y:boss.y, hp:boss.hp, maxHp:boss.maxHp } : null,
+        particles: particles.map(p => ({ x:p.x, y:p.y, life:p.life, color:p.color, size:p.size })),
+        score, gameActive,
+        cave: cave ? { gap:cave.gap, center:cave.center, slideOffset:cave.slideOffset, segs:cave.segs, turrets:cave.turrets } : null,
+        caveTime,
+        bossWarning: bossWarning.style.display === 'block'
+      });
+    } catch(sendErr) {}
+  }
   } catch(e) { console.error('gameLoop error:', e); }
 }
 
+function serializePlayer(p) {
+  return { x:p.x, y:p.y, vx:p.vx, vy:p.vy, lives:p.lives, alive:p.alive, invincible:p.invincible, trail:p.trail.slice(0, 8) };
+}
+
+function generateRoomCode() {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+function setupHost() {
+  if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
+  const code = generateRoomCode();
+  const panel = document.getElementById('online-panel');
+  panel.style.display = 'block';
+  document.getElementById('join-input-row').style.display = 'none';
+  document.getElementById('host-id-display').style.display = 'none';
+  document.getElementById('online-status').textContent = 'CREATING ROOM...';
+
+  peer = new Peer(code);
+  peer.on('open', id => {
+    document.getElementById('online-status').textContent = 'SHARE THIS CODE';
+    document.getElementById('host-id-display').style.display = 'block';
+    document.getElementById('host-id-display').textContent = id.toUpperCase();
+  });
+  peer.on('connection', c => {
+    conn = c;
+    document.getElementById('online-status').textContent = 'PLAYER 2 CONNECTED · STARTING...';
+    c.on('open', () => {
+      onlineMode = 'host';
+      panel.style.display = 'none';
+      startGame(2);
+    });
+    c.on('data', data => {
+      if (data.type === 'input') remoteInput = data;
+    });
+    c.on('close', () => { conn = null; if (gameActive) endGame(); });
+  });
+  peer.on('error', err => {
+    document.getElementById('online-status').textContent = 'Error: ' + err.type + '. Try again.';
+    if (err.type === 'unavailable-id') setTimeout(setupHost, 300);
+  });
+}
+
+function setupJoiner(code) {
+  if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
+  const normalCode = code.trim().toLowerCase();
+  document.getElementById('online-status').textContent = 'CONNECTING...';
+
+  peer = new Peer();
+  peer.on('open', () => {
+    conn = peer.connect(normalCode);
+    conn.on('open', () => {
+      onlineMode = 'joiner';
+      document.getElementById('online-panel').style.display = 'none';
+      document.getElementById('p1-lives').style.display = 'none';
+      document.getElementById('p2-lives').style.display = 'block';
+      overlay.style.display = 'none';
+      gameActive = false;
+    });
+    conn.on('data', data => {
+      if (data.type === 'state') {
+        remoteState = data;
+        if (data.gameActive && overlay.style.display !== 'none') overlay.style.display = 'none';
+      }
+    });
+    conn.on('close', () => {
+      conn = null; onlineMode = false; remoteState = null;
+      document.getElementById('online-status').textContent = 'Disconnected from host.';
+      document.getElementById('online-panel').style.display = 'block';
+      document.getElementById('p1-lives').style.display = 'block';
+      document.getElementById('p2-lives').style.display = 'none';
+      overlay.style.display = 'flex';
+    });
+    conn.on('error', () => {
+      document.getElementById('online-status').textContent = 'Connection failed. Check the code and try again.';
+    });
+  });
+  peer.on('error', err => {
+    document.getElementById('online-status').textContent = 'Connection failed: ' + err.type;
+  });
+}
+
+function renderJoinerFrame(dt, ts) {
+  // Send WASD input to host
+  if (conn && conn.open) {
+    conn.send({
+      type: 'input',
+      up:    keys['w'] || keys['W'],
+      down:  keys['s'] || keys['S'],
+      left:  keys['a'] || keys['A'],
+      right: keys['d'] || keys['D']
+    });
+  }
+
+  if (!remoteState) return;
+  const st = remoteState;
+
+  // Handle game over received from host
+  if (!st.gameActive) {
+    score = st.score;
+    if (score > highScore) highScore = score;
+    document.getElementById('last-score').style.display = 'block';
+    document.getElementById('last-score').textContent = 'SCORE: ' + Math.floor(score);
+    document.getElementById('hi-score-display').style.display = 'block';
+    document.getElementById('hi-score-display').textContent = '🏆 BEST: ' + Math.floor(highScore);
+    overlay.style.display = 'flex';
+    remoteState = null;
+    return;
+  }
+
+  // Sync cave globals so drawCaveWalls() works
+  if (st.cave) { cave = st.cave; caveTime = st.caveTime; } else { cave = null; }
+
+  // Boss warning
+  bossWarning.style.display = st.bossWarning ? 'block' : 'none';
+
+  // Draw game objects from host state
+  st.asteroids.forEach(a => drawAsteroid(a));
+  if (st.boss) drawBoss(st.boss);
+  if (st.cave) drawCaveWalls();
+  st.bullets.forEach(bl => drawBullet(bl));
+
+  // Particles
+  st.particles.forEach(p => {
+    ctx.save(); ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  });
+
+  // Draw only P2 ship (joiner's own ship)
+  if (st.p2 && st.p2.alive) {
+    st.p2.trail.forEach((pt, i) => {
+      ctx.globalAlpha = (1 - i / 8) * 0.3;
+      ctx.fillStyle = P2_COLORS.trail;
+      ctx.beginPath(); ctx.arc(pt.x - i * 4, pt.y, 4 - i * 0.4, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    const alpha = st.p2.invincible > 0 ? (Math.sin(st.p2.invincible * 0.5) > 0 ? 0.4 : 1) : 1;
+    drawShip({ ...st.p2, colors: P2_COLORS }, alpha);
+  }
+
+  // HUD
+  document.getElementById('score-display').textContent = 'SCORE: ' + Math.floor(st.score);
+  const p2h = ['', '🧡', '🧡 🧡', '🧡 🧡 🧡'];
+  if (st.p2) document.getElementById('p2-lives').textContent = p2h[Math.max(0, st.p2.lives)] || '';
+}
+
 function startGame(n) {
+  if (onlineMode === 'joiner') return;
   if (AC.state === 'suspended') AC.resume();
   numPlayers = n;
-  document.getElementById('p2-lives').style.display = n === 2 ? 'block' : 'none';
+  document.getElementById('p2-lives').style.display = (n === 2 && onlineMode !== 'host') ? 'block' : 'none';
+  document.getElementById('p1-lives').style.display = 'block';
   document.getElementById('last-score').style.display = 'none';
   document.getElementById('hi-score-display').style.display = 'none';
   overlay.style.display = 'none';
   initGame();
 }
 
-document.getElementById('btn-1p').onclick = () => { if (!gameActive) startGame(1); };
-document.getElementById('btn-2p').onclick = () => { if (!gameActive) startGame(2); };
+document.getElementById('btn-1p').onclick = () => { if (!gameActive && !onlineMode) startGame(1); };
+
+document.getElementById('btn-host').onclick = () => {
+  if (onlineMode === 'host' && conn && conn.open && !gameActive) {
+    // Already connected — just restart
+    startGame(2);
+  } else {
+    onlineMode = false;
+    setupHost();
+  }
+};
+
+document.getElementById('btn-join-online').onclick = () => {
+  onlineMode = false;
+  document.getElementById('online-panel').style.display = 'block';
+  document.getElementById('host-id-display').style.display = 'none';
+  document.getElementById('join-input-row').style.display = 'block';
+  document.getElementById('online-status').textContent = 'TYPE THE HOST CODE';
+};
+
+document.getElementById('btn-join-connect').onclick = () => {
+  const code = document.getElementById('peer-id-input').value;
+  if (code.trim()) setupJoiner(code);
+};
 
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
