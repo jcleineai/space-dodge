@@ -366,6 +366,7 @@ function initCave() {
   for (let i = 0; i < 5; i++) turrets.push(makeTurret(W + 220 + i * 270 + Math.random() * 80));
   cave = {
     gap: H * 0.72, center: H / 2, segW, slideOffset: H,
+    hillScrollOffset: 0,
     segs: Array.from({length: count}, (_, i) => makeCaveSeg(i * segW, segW)),
     turrets
   };
@@ -375,6 +376,7 @@ function updateCave(dt) {
   caveTime += dt * 0.001;
   if (cave.slideOffset > 0) cave.slideOffset = Math.max(0, cave.slideOffset - H * dt / 2000);
   const speed = 2 + score / 400;
+  cave.hillScrollOffset = (cave.hillScrollOffset || 0) + speed;
   cave.segs.forEach(s => s.x -= speed);
   while (cave.segs.length && cave.segs[0].x < -cave.segW - 10) cave.segs.shift();
   while (cave.segs[cave.segs.length - 1].x < W + cave.segW)
@@ -410,56 +412,82 @@ function drawTurret(t) {
   ctx.shadowBlur = 0; ctx.restore();
 }
 
+function hillH(x) {
+  if (!cave) return 0;
+  const wx = x + (cave.hillScrollOffset || 0);
+  const s = Math.sin(wx/220)*0.45 + Math.sin(wx/115+2.3)*0.30 + Math.sin(wx/68+5.1)*0.15;
+  return 35 * Math.max(0.1, 0.5 + s * 0.55);
+}
+
 function drawCaveWalls() {
-  if (!cave || cave.segs.length < 2) return;
+  if (!cave) return;
   const slideOffset = cave.slideOffset || 0;
   const topEdge = cave.center - cave.gap / 2 - slideOffset;
   const botEdge = cave.center + cave.gap / 2 + slideOffset;
-  const { segs, segW } = cave;
   ctx.save();
 
-  const topGrad = ctx.createLinearGradient(0, 0, 0, topEdge + 50);
-  topGrad.addColorStop(0, '#221100'); topGrad.addColorStop(0.65, '#554433'); topGrad.addColorStop(1, '#887766');
-  ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(W + 10, -5); ctx.lineTo(W + 10, topEdge);
-  for (let i = segs.length - 1; i >= 0; i--) {
-    const s = segs[i]; const jag = s.topJag + Math.sin(caveTime * 1.5 + s.phase) * 3;
-    ctx.lineTo(s.x + segW * 0.8, topEdge); ctx.lineTo(s.x + segW * 0.5, topEdge + jag); ctx.lineTo(s.x + segW * 0.2, topEdge);
-  }
-  ctx.lineTo(-10, topEdge); ctx.closePath(); ctx.fillStyle = topGrad; ctx.fill();
-  ctx.strokeStyle = '#998877'; ctx.lineWidth = 1.5; ctx.beginPath();
-  segs.forEach((s, i) => {
-    const jag = s.topJag + Math.sin(caveTime * 1.5 + s.phase) * 3;
-    if (i === 0) ctx.moveTo(s.x + segW * 0.2, topEdge);
-    ctx.lineTo(s.x + segW * 0.5, topEdge + jag); ctx.lineTo(s.x + segW * 0.8, topEdge);
-  }); ctx.stroke();
-  ctx.strokeStyle = '#332211'; ctx.lineWidth = 1;
-  segs.forEach(s => s.topCracks.forEach(cr => {
-    ctx.beginPath(); ctx.moveTo(s.x + cr.ax, topEdge * 0.4 + cr.ay); ctx.lineTo(s.x + cr.bx, topEdge * 0.4 + cr.by); ctx.stroke();
-  }));
-  const shimmer = 0.05 + Math.sin(caveTime * 2.5) * 0.02;
-  ctx.fillStyle = `rgba(255,230,180,${shimmer})`; ctx.fillRect(0, topEdge - 2, W, 3);
+  // TOP WALL — grassy hills hanging down from topEdge
+  const topGrad = ctx.createLinearGradient(0, 0, 0, topEdge + 45);
+  topGrad.addColorStop(0, '#091504');
+  topGrad.addColorStop(0.58, '#142e08');
+  topGrad.addColorStop(0.86, '#215710');
+  topGrad.addColorStop(1, '#2d7014');
 
-  const botGrad = ctx.createLinearGradient(0, H, 0, botEdge - 50);
-  botGrad.addColorStop(0, '#221100'); botGrad.addColorStop(0.65, '#554433'); botGrad.addColorStop(1, '#887766');
-  ctx.beginPath(); ctx.moveTo(-10, H + 5); ctx.lineTo(W + 10, H + 5); ctx.lineTo(W + 10, botEdge);
-  for (let i = segs.length - 1; i >= 0; i--) {
-    const s = segs[i]; const jag = s.botJag + Math.sin(caveTime * 1.3 + s.phase + 1.0) * 3;
-    ctx.lineTo(s.x + segW * 0.8, botEdge); ctx.lineTo(s.x + segW * 0.5, botEdge - jag); ctx.lineTo(s.x + segW * 0.2, botEdge);
-  }
-  ctx.lineTo(-10, botEdge); ctx.closePath(); ctx.fillStyle = botGrad; ctx.fill();
-  ctx.strokeStyle = '#998877'; ctx.lineWidth = 1.5; ctx.beginPath();
-  segs.forEach((s, i) => {
-    const jag = s.botJag + Math.sin(caveTime * 1.3 + s.phase + 1.0) * 3;
-    if (i === 0) ctx.moveTo(s.x + segW * 0.2, botEdge);
-    ctx.lineTo(s.x + segW * 0.5, botEdge - jag); ctx.lineTo(s.x + segW * 0.8, botEdge);
-  }); ctx.stroke();
-  ctx.strokeStyle = '#332211'; ctx.lineWidth = 1;
-  segs.forEach(s => s.botCracks.forEach(cr => {
-    const cy = botEdge + (H - botEdge) * 0.3;
-    ctx.beginPath(); ctx.moveTo(s.x + cr.ax, cy + cr.ay); ctx.lineTo(s.x + cr.bx, cy + cr.by); ctx.stroke();
-  }));
-  ctx.fillStyle = `rgba(255,230,180,${shimmer})`; ctx.fillRect(0, botEdge - 1, W, 3);
+  ctx.beginPath();
+  ctx.moveTo(-4, -4);
+  ctx.lineTo(W + 4, -4);
+  for (let x = W + 4; x >= -4; x -= 4) ctx.lineTo(x, topEdge + hillH(x));
+  ctx.closePath();
+  ctx.fillStyle = topGrad;
+  ctx.fill();
 
+  // Grass edge — main bright stripe
+  ctx.shadowBlur = 10; ctx.shadowColor = '#70e030';
+  ctx.strokeStyle = '#50be18'; ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(-4, topEdge + hillH(-4));
+  for (let x = 0; x <= W + 4; x += 4) ctx.lineTo(x, topEdge + hillH(x));
+  ctx.stroke();
+
+  // Lighter tip highlight
+  ctx.shadowBlur = 5; ctx.shadowColor = '#b8ff80';
+  ctx.strokeStyle = '#7ee030'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-4, topEdge + hillH(-4) - 4);
+  for (let x = 0; x <= W + 4; x += 4) ctx.lineTo(x, topEdge + hillH(x) - 4);
+  ctx.stroke();
+
+  // BOTTOM WALL — grassy hills rising up from botEdge
+  const botGrad = ctx.createLinearGradient(0, H, 0, botEdge - 45);
+  botGrad.addColorStop(0, '#091504');
+  botGrad.addColorStop(0.58, '#142e08');
+  botGrad.addColorStop(0.86, '#215710');
+  botGrad.addColorStop(1, '#2d7014');
+
+  ctx.beginPath();
+  ctx.moveTo(-4, H + 4);
+  ctx.lineTo(W + 4, H + 4);
+  for (let x = W + 4; x >= -4; x -= 4) ctx.lineTo(x, botEdge - hillH(x));
+  ctx.closePath();
+  ctx.fillStyle = botGrad;
+  ctx.fill();
+
+  // Grass edge on bottom
+  ctx.shadowBlur = 10; ctx.shadowColor = '#70e030';
+  ctx.strokeStyle = '#50be18'; ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(-4, botEdge - hillH(-4));
+  for (let x = 0; x <= W + 4; x += 4) ctx.lineTo(x, botEdge - hillH(x));
+  ctx.stroke();
+
+  ctx.shadowBlur = 5; ctx.shadowColor = '#b8ff80';
+  ctx.strokeStyle = '#7ee030'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-4, botEdge - hillH(-4) + 4);
+  for (let x = 0; x <= W + 4; x += 4) ctx.lineTo(x, botEdge - hillH(x) + 4);
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
   cave.turrets.forEach(t => drawTurret(t));
   ctx.restore();
 }
@@ -966,7 +994,7 @@ function gameLoop(ts) {
         bullets: bullets.map(b => ({ x:b.x, y:b.y, vx:b.vx, vy:b.vy })),
         particles: particles.map(p => ({ x:p.x, y:p.y, life:p.life, color:p.color, size:p.size })),
         score, gameActive,
-        cave: cave ? { gap:cave.gap, center:cave.center, slideOffset:cave.slideOffset, segs:cave.segs, turrets:cave.turrets } : null,
+        cave: cave ? { gap:cave.gap, center:cave.center, slideOffset:cave.slideOffset, hillScrollOffset:cave.hillScrollOffset||0, segs:cave.segs, turrets:cave.turrets } : null,
         caveTime,
         shieldPowerup: shieldPowerup ? { x:shieldPowerup.x, y:shieldPowerup.y } : null
       });
