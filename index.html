@@ -194,64 +194,76 @@ function playMusic(boss=false) {
   const t = boss ? 0.105 : musicTempo;
 
   if (!boss) {
-    // ===== STAGE THEME — C major, bright bouncy NES platformer (64 sixteenths, 4 bars) =====
-    // Chord progression: C - G - Am - F  (the catchy "hum-along" loop)
+    // ===== STAGE THEME — Gradius-style heroic space-hero anthem (Am-F-C-G, 64 sixteenths) =====
+    // Twin square-wave leads in chord-outline harmony over a strong driving bass.
     const lead = [
-      // bar 1 — rising hook
-      ['G4',1],['C5',1],['E5',1],['G5',1], ['E5',1],['C5',1],['E5',2],
-      ['D5',1],['F5',1],['A5',1],['F5',1], ['D5',1],['B4',1],['D5',2],
-      // bar 2 — octave climb + answer
-      ['C5',1],['E5',1],['G5',1],['C6',1], ['B5',2],['A5',1],['G5',1],
-      ['F5',1],['A5',1],['G5',1],['E5',1], ['C5',2],['G4',2],
-      // bar 3 — brighter B-phrase
-      ['F5',1],['F5',1],['A5',1],['C6',1], ['A5',1],['F5',1],['A5',2],
-      ['G5',1],['G5',1],['B5',1],['D6',1], ['B5',1],['G5',1],['B5',2],
-      // bar 4 — descending run + turnaround
-      ['C6',1],['B5',1],['A5',1],['G5',1], ['F5',1],['E5',1],['D5',1],['E5',1],
-      ['G5',2],['E5',1],['C5',1], ['G4',1],['B4',1],['D5',1],['G5',1]
+      // bar 1 (Am) — heroic rising call
+      ['A4',1],['C5',1],['E5',1],['A5',1], ['G5',2],['E5',1],['C5',1],
+      ['D5',1],['E5',1],['G5',1],['E5',1], ['A5',2],['E5',2],
+      // bar 2 (F) — soaring answer
+      ['F5',1],['A5',1],['C6',1],['A5',1], ['G5',2],['F5',1],['E5',1],
+      ['F5',1],['G5',1],['A5',1],['F5',1], ['C5',2],['C5',2],
+      // bar 3 (C) — triumphant
+      ['C5',1],['E5',1],['G5',1],['C6',1], ['B5',2],['G5',1],['E5',1],
+      ['G5',1],['A5',1],['B5',1],['G5',1], ['E5',2],['G5',2],
+      // bar 4 (G) — driving climb that rockets back to the top
+      ['G5',1],['B5',1],['D6',1],['B5',1], ['A5',2],['G5',1],['F5',1],
+      ['E5',1],['F5',1],['G5',1],['A5',1], ['B5',1],['C6',1],['D6',1],['E6',1]
+    ];
+    const harmony = [  // secondary square voice — chord outlines, a third/sixth under the lead
+      ['E4',2],['A4',2],['C5',2],['A4',2], ['E4',2],['A4',2],['C5',2],['E4',2],
+      ['F4',2],['A4',2],['C5',2],['A4',2], ['F4',2],['A4',2],['C5',2],['F4',2],
+      ['E4',2],['G4',2],['C5',2],['G4',2], ['E4',2],['G4',2],['C5',2],['E4',2],
+      ['D4',2],['G4',2],['B4',2],['G4',2], ['D4',2],['G4',2],['B4',2],['D4',2]
     ];
     const bass = [
-      ['C2',2],['C3',2],['G2',2],['C3',2], ['C2',2],['C3',2],['G2',2],['B2',2],
-      ['G2',2],['G3',2],['D3',2],['G3',2], ['G2',2],['G3',2],['D3',2],['F3',2],
       ['A2',2],['A3',2],['E3',2],['A3',2], ['A2',2],['A3',2],['E3',2],['G3',2],
-      ['F2',2],['F3',2],['C3',2],['F3',2], ['F2',2],['F3',2],['C3',2],['E3',2]
+      ['F2',2],['F3',2],['C3',2],['F3',2], ['F2',2],['F3',2],['C3',2],['E3',2],
+      ['C2',2],['C3',2],['G2',2],['C3',2], ['C2',2],['C3',2],['G2',2],['B2',2],
+      ['G2',2],['G3',2],['D3',2],['G3',2], ['G2',2],['G3',2],['D3',2],['F3',2]
     ];
-    schedMelody(lead, t, 0.20, 'square', 0.92);
-    schedMelody(bass, t, 0.18, 'sawtooth', 0.96);
-    schedArp([['C4','E4','G4','E4'],['G3','B3','D4','B3'],['A3','C4','E4','C4'],['F3','A3','C4','A3']], t, 0.06, 'square');
-    // Strong driving beat: kick on 1, 3 + push; snare backbeat; 8th-note hats
+    schedMelody(lead,    t, 0.19, 'square', 0.90);
+    schedMelody(harmony, t, 0.09, 'square', 0.88);
+    schedMelody(bass,    t, 0.17, 'sawtooth', 0.97);
+    // Driving forward beat: kicks on 1/3 with off-beat pushes, backbeat snare, straight-8th hats
     for (let i = 0; i < 64; i++) {
       const b = i % 16;
-      if (b === 0 || b === 8 || b === 11) drumHit(i*t, 'kick');
+      if (b === 0 || b === 6 || b === 8 || b === 14) drumHit(i*t, 'kick');
       if (b === 4 || b === 12) drumHit(i*t, 'snare');
       if (i % 2 === 0) drumHit(i*t, 'hat');
     }
 
   } else {
-    // ===== BOSS THEME — D minor (harmonic), dark, fast, final-battle intensity (64 sixteenths) =====
+    // ===== BOSS THEME — dark Gradius (Am-F-Dm-E harmonic minor), threatening & intense =====
     const lead = [
-      // bar 1 — menacing motif, leading-tone tension
-      ['D5',1],['A4',1],['D5',1],['F5',1], ['E5',1],['D5',1],['C#5',2],
-      ['D5',1],['F5',1],['A5',1],['F5',1], ['E5',2],['D5',2],
-      // bar 2 — darker answer
-      ['A#4',1],['D5',1],['F5',1],['D5',1], ['A4',1],['C5',1],['E5',2],
-      ['F5',1],['E5',1],['D5',1],['C5',1], ['A4',2],['A4',2],
-      // bar 3 — climbing build, rising dread
-      ['D5',1],['E5',1],['F5',1],['G5',1], ['A5',1],['G5',1],['F5',1],['E5',1],
-      ['F5',1],['G5',1],['A5',1],['A#5',1], ['A5',2],['G5',2],
-      // bar 4 — dark resolve + dramatic stab
-      ['F5',1],['E5',1],['D5',1],['C#5',1], ['D5',1],['A4',1],['F4',1],['A4',1],
-      ['D5',2],['C#5',2], ['D5',1],['F5',1],['A5',1],['D6',1]
+      // bar 1 (Am) — menacing motif
+      ['A4',1],['E4',1],['A4',1],['C5',1], ['B4',1],['A4',1],['E4',2],
+      ['A4',1],['C5',1],['E5',1],['C5',1], ['B4',2],['A4',2],
+      // bar 2 (F) — dark answer
+      ['F4',1],['A4',1],['C5',1],['A4',1], ['G4',2],['F4',1],['E4',1],
+      ['F4',1],['G4',1],['A4',1],['F4',1], ['C4',2],['C4',2],
+      // bar 3 (Dm) — rising dread
+      ['D4',1],['F4',1],['A4',1],['D5',1], ['C5',2],['A4',1],['F4',1],
+      ['A4',1],['C5',1],['D5',1],['A4',1], ['F4',2],['A4',2],
+      // bar 4 (E, harmonic-minor V) — leading-tone tension & dramatic stab
+      ['E4',1],['G#4',1],['B4',1],['E5',1], ['D5',2],['B4',1],['G#4',1],
+      ['E4',1],['G#4',1],['B4',1],['D5',1], ['E5',2],['E5',2]
+    ];
+    const harmony = [
+      ['E3',2],['A3',2],['C4',2],['A3',2], ['E3',2],['A3',2],['C4',2],['E3',2],
+      ['F3',2],['A3',2],['C4',2],['A3',2], ['F3',2],['A3',2],['C4',2],['F3',2],
+      ['D3',2],['F3',2],['A3',2],['F3',2], ['D3',2],['F3',2],['A3',2],['D3',2],
+      ['E3',2],['G#3',2],['B3',2],['G#3',2], ['E3',2],['G#3',2],['B3',2],['E3',2]
     ];
     const bass = [
-      ['D2',2],['D2',2],['D2',2],['D2',2], ['D2',2],['D2',2],['F2',2],['A2',2],
-      ['A#1',2],['A#1',2],['A#1',2],['A#1',2], ['A1',2],['A1',2],['A1',2],['A1',2],
-      ['D2',2],['D2',2],['D2',2],['D2',2], ['F2',2],['F2',2],['G2',2],['G2',2],
-      ['D2',2],['D2',2],['A1',2],['A1',2], ['D2',2],['D2',2],['C#2',2],['C#2',2]
+      ['A1',2],['A2',2],['E2',2],['A2',2], ['A1',2],['A2',2],['E2',2],['G2',2],
+      ['F1',2],['F2',2],['C2',2],['F2',2], ['F1',2],['F2',2],['C2',2],['E2',2],
+      ['D2',2],['D2',2],['A1',2],['D2',2], ['D2',2],['D2',2],['A1',2],['C2',2],
+      ['E2',2],['E2',2],['B1',2],['E2',2], ['E2',2],['E2',2],['B1',2],['D2',2]
     ];
-    schedMelody(lead, t, 0.22, 'square', 0.85);
-    schedMelody(bass, t, 0.17, 'sawtooth', 0.98);
-    schedArp([['D4','F4','A4','F4'],['A#3','D4','F4','D4'],['D4','F4','A4','F4'],['A3','C#4','E4','C#4']], t, 0.06, 'square');
+    schedMelody(lead,    t, 0.21, 'square', 0.84);
+    schedMelody(harmony, t, 0.09, 'square', 0.86);
+    schedMelody(bass,    t, 0.18, 'sawtooth', 0.98);
     // Relentless double-kick gallop, hard backbeat
     for (let i = 0; i < 64; i++) {
       const b = i % 16;
