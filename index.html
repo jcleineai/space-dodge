@@ -31,6 +31,10 @@
   .mode-btn.online { border-color: #44aaff; color: #44aaff; background: #44aaff22; }
   .mode-btn.online:hover { background: #44aaff44; }
   #extra-life-msg { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); display: none; font-size: 40px; color: #44ffaa; font-weight: bold; letter-spacing: 3px; text-shadow: 0 0 24px #44ffaa, 0 0 8px #fff; pointer-events: none; white-space: nowrap; }
+  #pause-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; text-align: center; pointer-events: none; }
+  #pause-msg .pause-main { font-size: 64px; color: #44ffaa; font-weight: bold; letter-spacing: 10px; text-shadow: 0 0 30px #44ffaa, 0 0 12px #fff; animation: pausePulse 1.4s ease-in-out infinite; }
+  #pause-msg .pause-sub { font-size: 14px; color: #aaa; letter-spacing: 3px; margin-top: 14px; }
+  @keyframes pausePulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
   #extra-life-msg.pop { animation: lifepop 1.6s ease-out; }
   @keyframes lifepop {
     0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.5); }
@@ -56,6 +60,10 @@
     <div class="warn-sub">DODGE PAST IT!</div>
   </div>
   <div id="extra-life-msg">EXTRA LIFE! 🎉</div>
+  <div id="pause-msg">
+    <div class="pause-main">⏸ PAUSED</div>
+    <div class="pause-sub">PRESS P TO RESUME</div>
+  </div>
 </div>
 <div id="overlay">
   <h1>SPACE DODGE</h1>
@@ -371,6 +379,7 @@ let asteroidTimer = 0;
 let lastTime = 0;
 let gameTime = 0;
 let debugMode = false;
+let paused = false;
 let cave = null;
 let caveTime = 0;
 let shieldPowerup = null;
@@ -399,8 +408,20 @@ function initGame() {
   gameTime = 0;
   cave = null; caveTime = 0;
   shieldPowerup = null; shieldPowerupCooldown = 30000;
+  setPaused(false);
   updateHUD();
   playMusic(false);
+}
+
+function setPaused(p) {
+  paused = p;
+  document.getElementById('pause-msg').style.display = p ? 'block' : 'none';
+}
+
+function togglePause() {
+  // Pause only makes sense in local (non-online) active play
+  if (!gameActive || onlineMode) return;
+  setPaused(!paused);
 }
 
 function checkGameOver() {
@@ -784,7 +805,7 @@ function awardExtraLife(p) {
 }
 
 function endGame() {
-  gameActive = false; stopMusic(); sfx('gameover');
+  gameActive = false; setPaused(false); stopMusic(); sfx('gameover');
   if (score > highScore) highScore = score;
   document.getElementById('last-score').style.display = 'block';
   document.getElementById('last-score').textContent = 'SCORE: ' + Math.floor(score);
@@ -796,6 +817,8 @@ function endGame() {
 function gameLoop(ts) {
   requestAnimationFrame(gameLoop);
   try {
+  // Paused: keep the last rendered frame frozen on canvas, skip all updates & drawing
+  if (paused) { lastTime = ts; return; }
   const dt = Math.min(ts - lastTime, 50);
   lastTime = ts;
 
@@ -1302,6 +1325,7 @@ document.getElementById('btn-join-connect').onclick = () => {
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === 'd' || e.key === 'D') { debugMode = !debugMode; console.log('Debug mode:', debugMode); }
+  if ((e.key === 'p' || e.key === 'P') && !e.repeat) togglePause();
 });
 document.addEventListener('keyup',   e => { keys[e.key] = false; });
 
