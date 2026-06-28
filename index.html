@@ -241,6 +241,27 @@ function sfx(type) {
       o.start(AC.currentTime+i*0.3); o.stop(AC.currentTime+i*0.3+0.25);
     });
   }
+  if (type === 'shield-collect') {
+    [523,659,784,1047].forEach((f,i) => {
+      const o = AC.createOscillator(), g = AC.createGain();
+      o.connect(g); g.connect(AC.destination);
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, AC.currentTime+i*0.09);
+      g.gain.linearRampToValueAtTime(0.22, AC.currentTime+i*0.09+0.02);
+      g.gain.linearRampToValueAtTime(0, AC.currentTime+i*0.09+0.28);
+      o.start(AC.currentTime+i*0.09); o.stop(AC.currentTime+i*0.09+0.3);
+    });
+  }
+  if (type === 'shield-bounce') {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(1200, AC.currentTime);
+    o.frequency.exponentialRampToValueAtTime(600, AC.currentTime+0.15);
+    g.gain.setValueAtTime(0.28, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime+0.42);
+    o.start(); o.stop(AC.currentTime+0.45);
+  }
 }
 
 const P1_COLORS = {
@@ -277,6 +298,8 @@ let gameTime = 0;
 let debugMode = false;
 let cave = null;
 let caveTime = 0;
+let shieldPowerup = null;
+let shieldPowerupCooldown = 30000;
 
 // Online co-op state
 let peer = null, conn = null;
@@ -286,7 +309,7 @@ let remoteState = null;
 let lastStateSend = 0;
 
 function makePlayer(colors, startY) {
-  return { x: 100, y: startY, vx: 0, vy: 0, trail: [], lives: 3, alive: true, invincible: 0, colors };
+  return { x: 100, y: startY, vx: 0, vy: 0, trail: [], lives: 3, alive: true, invincible: 0, shield: 0, colors };
 }
 
 function initGame() {
@@ -300,6 +323,7 @@ function initGame() {
   asteroidTimer = 0;
   gameTime = 0;
   cave = null; caveTime = 0;
+  shieldPowerup = null; shieldPowerupCooldown = 30000;
   updateHUD();
   playMusic(false);
 }
@@ -567,6 +591,58 @@ function drawBullet(bl) {
   ctx.shadowBlur = 0; ctx.restore();
 }
 
+function drawShieldPowerup(pu) {
+  const t = Date.now() * 0.003;
+  const pulse = 0.7 + 0.3 * Math.sin(t);
+  ctx.save(); ctx.translate(pu.x, pu.y);
+  const grd = ctx.createRadialGradient(0,0,0,0,0,28);
+  grd.addColorStop(0, `rgba(100,200,255,${0.45*pulse})`);
+  grd.addColorStop(0.55, `rgba(60,160,255,${0.2*pulse})`);
+  grd.addColorStop(1, 'rgba(0,100,255,0)');
+  ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(0,0,28,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 22*pulse; ctx.shadowColor = '#44aaff';
+  ctx.strokeStyle = `rgba(130,210,255,${pulse})`; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(0,0,16,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle = `rgba(120,210,255,${0.15*pulse})`; ctx.fill();
+  ctx.shadowBlur = 8*pulse; ctx.shadowColor = '#aaeeff';
+  ctx.fillStyle = `rgba(200,240,255,${pulse})`;
+  ctx.beginPath(); ctx.moveTo(0,8); ctx.lineTo(-6,3); ctx.lineTo(-6,-2);
+  ctx.bezierCurveTo(-6,-7,6,-7,6,-2); ctx.lineTo(6,3); ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0; ctx.restore();
+}
+
+function drawShieldEffect(p) {
+  const t = Date.now() * 0.004;
+  const pulse = 0.65 + 0.35 * Math.sin(t);
+  const frac = Math.min(1, p.shield / 5000);
+  ctx.save(); ctx.translate(p.x, p.y);
+  ctx.shadowBlur = 20*pulse; ctx.shadowColor = '#44aaff';
+  ctx.strokeStyle = `rgba(100,180,255,${0.8*pulse})`; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(0,0,30,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle = `rgba(80,160,255,${0.07*pulse})`; ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.rotate(t * 0.6);
+  ctx.strokeStyle = `rgba(120,210,255,${0.3*pulse})`; ctx.lineWidth = 1.2;
+  ctx.setLineDash([5,9]); ctx.beginPath(); ctx.arc(0,0,27,0,Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]); ctx.restore();
+  const barW = 44, barH = 4, bx = p.x - barW/2, by = p.y + 34;
+  const isLow = frac < 0.2;
+  ctx.fillStyle = '#0a0a22'; ctx.fillRect(bx-1, by-1, barW+2, barH+2);
+  ctx.fillStyle = isLow ? `rgba(255,60,60,${0.85+0.15*pulse})` : `rgba(68,170,255,${0.85+0.15*pulse})`;
+  ctx.fillRect(bx, by, barW*frac, barH);
+  ctx.strokeStyle = isLow ? '#ff6666' : '#66ccff'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, barW, barH);
+}
+
+function spawnShieldBounce(px, py) {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random()*Math.PI*2, sp = 1.5+Math.random()*3;
+    particles.push({ x:px, y:py, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+      life:1, decay:0.04,
+      color:['#44aaff','#88ddff','#aaeeff','#ffffff','#4466ff'][Math.floor(Math.random()*5)],
+      size:2+Math.random()*4 });
+  }
+}
+
 function spawnAsteroid() {
   const size = 20 + Math.random()*30;
   const speed = (1.5 + score/200) * (0.7 + Math.random()*0.6);
@@ -713,7 +789,7 @@ function gameLoop(ts) {
 
     // Wall collision per player
     players.forEach(p => {
-      if (!p.alive || p.invincible > 0) return;
+      if (!p.alive || p.invincible > 0 || p.shield > 0) return;
       if (p.y - 14 < topEdge || p.y + 14 > botEdge) {
         sfx('hit');
         spawnExplosion(p.x, p.y < cave.center ? topEdge : botEdge, '#887766');
@@ -744,8 +820,10 @@ function gameLoop(ts) {
       ctx.globalAlpha = 1;
       const alpha = p.invincible > 0 ? (Math.sin(p.invincible*0.5) > 0 ? 0.4 : 1) : 1;
       drawShip(p, alpha);
+      if (p.shield > 0) drawShieldEffect(p);
     }
     if (p.invincible > 0) p.invincible--;
+    if (p.shield > 0) p.shield = Math.max(0, p.shield - dt);
   });
 
   score += dt * 0.01;
@@ -770,8 +848,14 @@ function gameLoop(ts) {
     if (a.x < -100) return false;
     drawAsteroid(a);
     for (const p of players) {
-      if (!p.alive || p.invincible > 0) continue;
+      if (!p.alive) continue;
       if (Math.hypot(a.x - p.x, a.y - p.y) < a.size*0.75+14) {
+        if (p.shield > 0) {
+          sfx('shield-bounce'); spawnShieldBounce(p.x, p.y);
+          a.vx = Math.abs(a.vx) * 0.9 + 0.5; a.vy += (a.y - p.y) * 0.08;
+          break;
+        }
+        if (p.invincible > 0) continue;
         sfx('hit'); spawnExplosion(a.x, a.y);
         p.lives--; p.invincible = 120; updateHUD();
         if (p.lives <= 0) { p.alive = false; checkGameOver(); }
@@ -780,6 +864,27 @@ function gameLoop(ts) {
     }
     return true;
   });
+
+  // Shield power-up
+  shieldPowerupCooldown -= dt;
+  if (shieldPowerupCooldown <= 0 && !shieldPowerup) {
+    shieldPowerup = { x: W + 20, y: H * 0.15 + Math.random() * H * 0.7 };
+    shieldPowerupCooldown = 30000;
+  }
+  if (shieldPowerup) {
+    shieldPowerup.x -= 1.8;
+    if (shieldPowerup.x < -30) {
+      shieldPowerup = null;
+    } else {
+      drawShieldPowerup(shieldPowerup);
+      for (const p of players) {
+        if (!p.alive) continue;
+        if (Math.hypot(shieldPowerup.x - p.x, shieldPowerup.y - p.y) < 28) {
+          p.shield = 5000; sfx('shield-collect'); shieldPowerup = null; break;
+        }
+      }
+    }
+  }
 
   if (!bossSpawned && gameTime > 65000) spawnBoss();
   if (!cave && score > 256) initCave();
@@ -803,6 +908,7 @@ function gameLoop(ts) {
       players.forEach(p => {
         if (!p.alive || p.invincible > 0) return;
         if (Math.hypot(boss.x - p.x, boss.y - p.y) < 52) {
+          if (p.shield > 0) { sfx('shield-bounce'); spawnShieldBounce(p.x, p.y); return; }
           sfx('hit'); spawnExplosion(p.x, p.y, '#ff44aa');
           p.lives--; p.invincible = 120; updateHUD();
           if (p.lives <= 0) { p.alive = false; checkGameOver(); }
@@ -839,8 +945,13 @@ function gameLoop(ts) {
     }
     drawBullet(bl);
     for (const p of players) {
-      if (!p.alive || p.invincible > 0) continue;
+      if (!p.alive) continue;
       if (Math.hypot(bl.x - p.x, bl.y - p.y) < 16) {
+        if (p.shield > 0) {
+          sfx('shield-bounce'); spawnShieldBounce(p.x, p.y);
+          bl.vx *= -1; bl.vy *= -0.8; break;
+        }
+        if (p.invincible > 0) continue;
         sfx('hit'); spawnExplosion(bl.x, bl.y, '#ffff44');
         p.lives--; p.invincible = 120; updateHUD();
         if (p.lives <= 0) { p.alive = false; checkGameOver(); }
@@ -875,6 +986,7 @@ function gameLoop(ts) {
         score, gameActive,
         cave: cave ? { gap:cave.gap, center:cave.center, slideOffset:cave.slideOffset, segs:cave.segs, turrets:cave.turrets } : null,
         caveTime,
+        shieldPowerup: shieldPowerup ? { x:shieldPowerup.x, y:shieldPowerup.y } : null,
         bossWarning: bossWarning.style.display === 'block'
       });
     } catch(sendErr) {}
@@ -883,7 +995,7 @@ function gameLoop(ts) {
 }
 
 function serializePlayer(p) {
-  return { x:p.x, y:p.y, vx:p.vx, vy:p.vy, lives:p.lives, alive:p.alive, invincible:p.invincible, trail:p.trail.slice(0, 8) };
+  return { x:p.x, y:p.y, vx:p.vx, vy:p.vy, lives:p.lives, alive:p.alive, invincible:p.invincible, shield:p.shield||0, trail:p.trail.slice(0, 8) };
 }
 
 function generateRoomCode() {
@@ -1009,6 +1121,8 @@ function renderJoinerFrame(dt, ts) {
     ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2); ctx.fill(); ctx.restore();
   });
 
+  if (st.shieldPowerup) drawShieldPowerup(st.shieldPowerup);
+
   // Draw only P2 ship (joiner's own ship)
   if (st.p2 && st.p2.alive) {
     st.p2.trail.forEach((pt, i) => {
@@ -1019,6 +1133,7 @@ function renderJoinerFrame(dt, ts) {
     ctx.globalAlpha = 1;
     const alpha = st.p2.invincible > 0 ? (Math.sin(st.p2.invincible * 0.5) > 0 ? 0.4 : 1) : 1;
     drawShip({ ...st.p2, colors: P2_COLORS }, alpha);
+    if (st.p2.shield > 0) drawShieldEffect(st.p2);
   }
 
   // HUD
