@@ -103,179 +103,91 @@ const AC = new (window.AudioContext || window.webkitAudioContext)();
 let muted = false;
 muteBtn.onclick = () => { muted = !muted; muteBtn.textContent = muted ? '🔇 UNMUTE' : '🔊 MUTE'; };
 
-// Music bus: glue compressor + headroom so layered chiptune voices stay punchy without clipping
-const musicBus = AC.createGain();
-musicBus.gain.value = 0.55;
-const musicComp = AC.createDynamicsCompressor();
-musicComp.threshold.value = -16; musicComp.knee.value = 24; musicComp.ratio.value = 4;
-musicComp.attack.value = 0.003; musicComp.release.value = 0.18;
-musicBus.connect(musicComp); musicComp.connect(AC.destination);
-
-// Note name → frequency (equal temperament, A4 = 440)
-const SEMI = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-function ntof(name) {
-  const idx = SEMI.indexOf(name.slice(0, -1));
-  const oct = +name.slice(-1);
-  return 440 * Math.pow(2, ((oct + 1) * 12 + idx - 69) / 12);
-}
-// Schedule a melodic voice from [noteName|null, durationSteps] pairs
-function schedMelody(seq, t, vol, type, gate) {
-  let pos = 0;
-  for (const [n, d] of seq) {
-    if (n) note(ntof(n), pos * t, d * t * gate, vol, type);
-    pos += d;
-  }
-}
-// Schedule a 16th-note arpeggio bed: one 4-note pattern per bar, repeated 4× (16 steps/bar)
-function schedArp(bars, t, vol, type) {
-  for (let bar = 0; bar < bars.length; bar++)
-    for (let r = 0; r < 4; r++)
-      for (let k = 0; k < 4; k++)
-        note(ntof(bars[bar][k]), (bar*16 + r*4 + k) * t, t*0.5, vol, type);
-}
-
 let musicNodes = [], musicPlaying = false, musicTempo = 0.20;
 
-function note(freq, start, dur, vol=0.3, type='square') {
+// Simple shared output for music (gentle headroom so square waves don't clip harshly)
+const musicGain = AC.createGain();
+musicGain.gain.value = 0.5;
+musicGain.connect(AC.destination);
+
+// Note name → frequency (equal temperament, A4 = 440)
+const SCALE = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function ntof(n) {
+  return 440 * Math.pow(2, ((+n.slice(-1) + 1) * 12 + SCALE.indexOf(n.slice(0, -1)) - 69) / 12);
+}
+
+// One pure square-wave note
+function mnote(freq, start, dur, vol) {
   if (muted) return;
   const o = AC.createOscillator(), g = AC.createGain();
-  o.connect(g); g.connect(musicBus);
-  o.type = type; o.frequency.value = freq;
-  g.gain.setValueAtTime(0, AC.currentTime + start);
-  g.gain.linearRampToValueAtTime(vol, AC.currentTime + start + 0.01);
-  g.gain.linearRampToValueAtTime(0, AC.currentTime + start + dur - 0.01);
-  o.start(AC.currentTime + start); o.stop(AC.currentTime + start + dur);
+  o.type = 'square'; o.frequency.value = freq;
+  o.connect(g); g.connect(musicGain);
+  const tt = AC.currentTime + start;
+  g.gain.setValueAtTime(0, tt);
+  g.gain.linearRampToValueAtTime(vol, tt + 0.008);
+  g.gain.setValueAtTime(vol, tt + dur - 0.02);
+  g.gain.linearRampToValueAtTime(0, tt + dur);
+  o.start(tt); o.stop(tt + dur + 0.02);
   musicNodes.push(o);
 }
 
-function drumHit(start, type) {
+// Drums: square kick + noise snare/hat
+function mdrum(start, type) {
   if (muted) return;
+  const tt = AC.currentTime + start;
   if (type === 'kick') {
     const o = AC.createOscillator(), g = AC.createGain();
-    o.connect(g); g.connect(musicBus);
-    o.type = 'sine';
-    o.frequency.setValueAtTime(150, AC.currentTime + start);
-    o.frequency.exponentialRampToValueAtTime(40, AC.currentTime + start + 0.08);
-    g.gain.setValueAtTime(0.5, AC.currentTime + start);
-    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + start + 0.12);
-    o.start(AC.currentTime + start); o.stop(AC.currentTime + start + 0.13);
+    o.type = 'square';
+    o.frequency.setValueAtTime(150, tt);
+    o.frequency.exponentialRampToValueAtTime(50, tt + 0.07);
+    g.gain.setValueAtTime(0.45, tt);
+    g.gain.exponentialRampToValueAtTime(0.001, tt + 0.12);
+    o.connect(g); g.connect(musicGain);
+    o.start(tt); o.stop(tt + 0.13);
     musicNodes.push(o);
-  }
-  if (type === 'snare') {
-    const len = Math.floor(AC.sampleRate * 0.08);
+  } else {
+    const dur = type === 'snare' ? 0.09 : 0.03;
+    const len = Math.floor(AC.sampleRate * dur);
     const buf = AC.createBuffer(1, len, AC.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    const src = AC.createBufferSource(), g = AC.createGain();
-    src.buffer = buf; src.connect(g); g.connect(musicBus);
-    g.gain.setValueAtTime(0.2, AC.currentTime + start);
-    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + start + 0.08);
-    src.start(AC.currentTime + start); src.stop(AC.currentTime + start + 0.09);
-    musicNodes.push(src);
-  }
-  if (type === 'hat') {
-    const len = Math.floor(AC.sampleRate * 0.025);
-    const buf = AC.createBuffer(1, len, AC.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    const src = AC.createBufferSource(), g = AC.createGain();
-    const filt = AC.createBiquadFilter();
-    filt.type = 'highpass'; filt.frequency.value = 7000;
-    src.buffer = buf; src.connect(filt); filt.connect(g); g.connect(musicBus);
-    g.gain.setValueAtTime(0.07, AC.currentTime + start);
-    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + start + 0.025);
-    src.start(AC.currentTime + start); src.stop(AC.currentTime + start + 0.03);
+    const src = AC.createBufferSource(); src.buffer = buf;
+    const g = AC.createGain();
+    g.gain.setValueAtTime(type === 'snare' ? 0.22 : 0.07, tt);
+    g.gain.exponentialRampToValueAtTime(0.001, tt + dur);
+    src.connect(g); g.connect(musicGain);
+    src.start(tt); src.stop(tt + dur + 0.01);
     musicNodes.push(src);
   }
 }
 
+// Dead-simple, super-catchy looping tune. 16 eighth-note steps.
+// Melody is built on a 4-note hook; bass + drums drive underneath. Square waves only.
 function playMusic(boss=false) {
   stopMusic(); musicPlaying = true;
-  const t = boss ? 0.105 : musicTempo;
+  const step = (boss ? 0.82 : 1) * musicTempo;  // eighth-note length (fast!)
 
-  if (!boss) {
-    // ===== STAGE THEME — Gradius-style heroic space-hero anthem (Am-F-C-G, 64 sixteenths) =====
-    // Twin square-wave leads in chord-outline harmony over a strong driving bass.
-    const lead = [
-      // bar 1 (Am) — heroic rising call
-      ['A4',1],['C5',1],['E5',1],['A5',1], ['G5',2],['E5',1],['C5',1],
-      ['D5',1],['E5',1],['G5',1],['E5',1], ['A5',2],['E5',2],
-      // bar 2 (F) — soaring answer
-      ['F5',1],['A5',1],['C6',1],['A5',1], ['G5',2],['F5',1],['E5',1],
-      ['F5',1],['G5',1],['A5',1],['F5',1], ['C5',2],['C5',2],
-      // bar 3 (C) — triumphant
-      ['C5',1],['E5',1],['G5',1],['C6',1], ['B5',2],['G5',1],['E5',1],
-      ['G5',1],['A5',1],['B5',1],['G5',1], ['E5',2],['G5',2],
-      // bar 4 (G) — driving climb that rockets back to the top
-      ['G5',1],['B5',1],['D6',1],['B5',1], ['A5',2],['G5',1],['F5',1],
-      ['E5',1],['F5',1],['G5',1],['A5',1], ['B5',1],['C6',1],['D6',1],['E6',1]
-    ];
-    const harmony = [  // secondary square voice — chord outlines, a third/sixth under the lead
-      ['E4',2],['A4',2],['C5',2],['A4',2], ['E4',2],['A4',2],['C5',2],['E4',2],
-      ['F4',2],['A4',2],['C5',2],['A4',2], ['F4',2],['A4',2],['C5',2],['F4',2],
-      ['E4',2],['G4',2],['C5',2],['G4',2], ['E4',2],['G4',2],['C5',2],['E4',2],
-      ['D4',2],['G4',2],['B4',2],['G4',2], ['D4',2],['G4',2],['B4',2],['D4',2]
-    ];
-    const bass = [
-      ['A2',2],['A3',2],['E3',2],['A3',2], ['A2',2],['A3',2],['E3',2],['G3',2],
-      ['F2',2],['F3',2],['C3',2],['F3',2], ['F2',2],['F3',2],['C3',2],['E3',2],
-      ['C2',2],['C3',2],['G2',2],['C3',2], ['C2',2],['C3',2],['G2',2],['B2',2],
-      ['G2',2],['G3',2],['D3',2],['G3',2], ['G2',2],['G3',2],['D3',2],['F3',2]
-    ];
-    schedMelody(lead,    t, 0.19, 'square', 0.90);
-    schedMelody(harmony, t, 0.09, 'square', 0.88);
-    schedMelody(bass,    t, 0.17, 'sawtooth', 0.97);
-    // Driving forward beat: kicks on 1/3 with off-beat pushes, backbeat snare, straight-8th hats
-    for (let i = 0; i < 64; i++) {
-      const b = i % 16;
-      if (b === 0 || b === 6 || b === 8 || b === 14) drumHit(i*t, 'kick');
-      if (b === 4 || b === 12) drumHit(i*t, 'snare');
-      if (i % 2 === 0) drumHit(i*t, 'hat');
-    }
+  // 16-step melody (eighth notes). Hook = first 4 notes, then it answers and loops.
+  const mel = boss
+    ? ['A4','C5','E5','C5', 'F5','E5','C5','E5', 'D5','F5','E5','C5', 'B4','C5','A4',null]   // A minor — dark
+    : ['C5','E5','G5','E5', 'A5','G5','E5','G5', 'F5','A5','G5','E5', 'D5','E5','C5',null];  // C major — happy
+  // Bass: one root every 2 steps (low/high octave bounce), follows the chords
+  const bass = boss
+    ? ['A1','A2','A1','A2', 'F1','F2','E1','E2']    // Am - Am - F - E
+    : ['C2','C3','C2','C3', 'F2','F3','G2','G3'];   // C  - C  - F - G
 
-  } else {
-    // ===== BOSS THEME — dark Gradius (Am-F-Dm-E harmonic minor), threatening & intense =====
-    const lead = [
-      // bar 1 (Am) — menacing motif
-      ['A4',1],['E4',1],['A4',1],['C5',1], ['B4',1],['A4',1],['E4',2],
-      ['A4',1],['C5',1],['E5',1],['C5',1], ['B4',2],['A4',2],
-      // bar 2 (F) — dark answer
-      ['F4',1],['A4',1],['C5',1],['A4',1], ['G4',2],['F4',1],['E4',1],
-      ['F4',1],['G4',1],['A4',1],['F4',1], ['C4',2],['C4',2],
-      // bar 3 (Dm) — rising dread
-      ['D4',1],['F4',1],['A4',1],['D5',1], ['C5',2],['A4',1],['F4',1],
-      ['A4',1],['C5',1],['D5',1],['A4',1], ['F4',2],['A4',2],
-      // bar 4 (E, harmonic-minor V) — leading-tone tension & dramatic stab
-      ['E4',1],['G#4',1],['B4',1],['E5',1], ['D5',2],['B4',1],['G#4',1],
-      ['E4',1],['G#4',1],['B4',1],['D5',1], ['E5',2],['E5',2]
-    ];
-    const harmony = [
-      ['E3',2],['A3',2],['C4',2],['A3',2], ['E3',2],['A3',2],['C4',2],['E3',2],
-      ['F3',2],['A3',2],['C4',2],['A3',2], ['F3',2],['A3',2],['C4',2],['F3',2],
-      ['D3',2],['F3',2],['A3',2],['F3',2], ['D3',2],['F3',2],['A3',2],['D3',2],
-      ['E3',2],['G#3',2],['B3',2],['G#3',2], ['E3',2],['G#3',2],['B3',2],['E3',2]
-    ];
-    const bass = [
-      ['A1',2],['A2',2],['E2',2],['A2',2], ['A1',2],['A2',2],['E2',2],['G2',2],
-      ['F1',2],['F2',2],['C2',2],['F2',2], ['F1',2],['F2',2],['C2',2],['E2',2],
-      ['D2',2],['D2',2],['A1',2],['D2',2], ['D2',2],['D2',2],['A1',2],['C2',2],
-      ['E2',2],['E2',2],['B1',2],['E2',2], ['E2',2],['E2',2],['B1',2],['D2',2]
-    ];
-    schedMelody(lead,    t, 0.21, 'square', 0.84);
-    schedMelody(harmony, t, 0.09, 'square', 0.86);
-    schedMelody(bass,    t, 0.18, 'sawtooth', 0.98);
-    // Relentless double-kick gallop, hard backbeat
-    for (let i = 0; i < 64; i++) {
-      const b = i % 16;
-      if (i % 4 === 0) drumHit(i*t, 'kick');
-      if (b === 6 || b === 14) drumHit(i*t, 'kick');
-      if (b === 4 || b === 12) drumHit(i*t, 'snare');
-      if (i % 2 === 1) drumHit(i*t, 'hat');
-    }
+  mel.forEach((n, i) => { if (n) mnote(ntof(n), i*step, step*0.92, 0.24); });
+  bass.forEach((n, i) => mnote(ntof(n), i*2*step, step*2*0.95, 0.20));
+
+  // Driving beat: kick on 1 & 3, snare on 2 & 4, hat on every eighth
+  for (let i = 0; i < 16; i++) {
+    if (i % 4 === 0) mdrum(i*step, 'kick');
+    if (i % 4 === 2) mdrum(i*step, 'snare');
+    mdrum(i*step, 'hat');
   }
 
-  const loopTime = 64 * t * 1000;
-  if (musicPlaying) setTimeout(() => { if(musicPlaying) playMusic(boss); }, loopTime);
+  const loopTime = 16 * step * 1000;
+  if (musicPlaying) setTimeout(() => { if (musicPlaying) playMusic(boss); }, loopTime);
 }
 
 function stopMusic() {
