@@ -426,35 +426,27 @@ function drawCaveWalls() {
   const botEdge = cave.center + cave.gap / 2 + slideOffset;
   ctx.save();
 
-  // TOP WALL — grassy hills hanging down from topEdge
-  const topGrad = ctx.createLinearGradient(0, 0, 0, topEdge + 45);
+  // TOP WALL — flat green grassy ground
+  const topGrad = ctx.createLinearGradient(0, 0, 0, topEdge);
   topGrad.addColorStop(0, '#091504');
-  topGrad.addColorStop(0.58, '#142e08');
-  topGrad.addColorStop(0.86, '#215710');
+  topGrad.addColorStop(0.7, '#142e08');
   topGrad.addColorStop(1, '#2d7014');
 
-  ctx.beginPath();
-  ctx.moveTo(-4, -4);
-  ctx.lineTo(W + 4, -4);
-  for (let x = W + 4; x >= -4; x -= 4) ctx.lineTo(x, topEdge + hillH(x));
-  ctx.closePath();
   ctx.fillStyle = topGrad;
-  ctx.fill();
+  ctx.fillRect(-4, -4, W + 8, topEdge + 4);
 
-  // Grass edge — main bright stripe
+  // Flat grass stripe at the bottom edge
   ctx.shadowBlur = 10; ctx.shadowColor = '#70e030';
-  ctx.strokeStyle = '#50be18'; ctx.lineWidth = 3.5;
+  ctx.strokeStyle = '#50be18'; ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(-4, topEdge + hillH(-4));
-  for (let x = 0; x <= W + 4; x += 4) ctx.lineTo(x, topEdge + hillH(x));
+  ctx.moveTo(-4, topEdge); ctx.lineTo(W + 4, topEdge);
   ctx.stroke();
 
-  // Lighter tip highlight
+  // Bright tip highlight just above
   ctx.shadowBlur = 5; ctx.shadowColor = '#b8ff80';
-  ctx.strokeStyle = '#7ee030'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#7ee030'; ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(-4, topEdge + hillH(-4) - 4);
-  for (let x = 0; x <= W + 4; x += 4) ctx.lineTo(x, topEdge + hillH(x) - 4);
+  ctx.moveTo(-4, topEdge - 4); ctx.lineTo(W + 4, topEdge - 4);
   ctx.stroke();
 
   // BOTTOM WALL — grassy hills rising up from botEdge
