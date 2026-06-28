@@ -24,10 +24,6 @@
   .mode-btn:hover { background: #44ffaa44; }
   .mode-btn.p2 { border-color: #ff8833; color: #ff8833; background: #ff883322; }
   .mode-btn.p2:hover { background: #ff883344; }
-  #boss-warning { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; text-align: center; }
-  #boss-warning .warn-main { font-size: 32px; color: #ff4466; font-weight: bold; letter-spacing: 4px; text-shadow: 0 0 20px #ff4466; animation: flash 0.4s infinite; }
-  #boss-warning .warn-sub { font-size: 14px; color: #ffaa44; letter-spacing: 2px; margin-top: 10px; text-shadow: 0 0 10px #ffaa44; }
-  @keyframes flash { 0%,100%{opacity:1} 50%{opacity:0} }
   .mode-btn.online { border-color: #44aaff; color: #44aaff; background: #44aaff22; }
   .mode-btn.online:hover { background: #44aaff44; }
   #extra-life-msg { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); display: none; font-size: 40px; color: #44ffaa; font-weight: bold; letter-spacing: 3px; text-shadow: 0 0 24px #44ffaa, 0 0 8px #fff; pointer-events: none; white-space: nowrap; }
@@ -55,10 +51,6 @@
     <div id="p2-lives">🧡 🧡 🧡</div>
   </div>
   <button id="mute-btn">🔊 MUTE</button>
-  <div id="boss-warning">
-    <div class="warn-main">⚠️ BOSS INCOMING ⚠️</div>
-    <div class="warn-sub">DODGE PAST IT!</div>
-  </div>
   <div id="extra-life-msg">EXTRA LIFE! 🎉</div>
   <div id="pause-msg">
     <div class="pause-main">⏸ PAUSED</div>
@@ -91,7 +83,6 @@
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const overlay = document.getElementById('overlay');
-const bossWarning = document.getElementById('boss-warning');
 const muteBtn = document.getElementById('mute-btn');
 
 let W, H;
@@ -161,42 +152,24 @@ function mdrum(start, type) {
   }
 }
 
-// Gradius-style 32 eighth-note loop — A major (stage) / A harmonic minor (boss).
-// Twin square-wave leads (melody + diatonic third below), moving bass, driving drums.
-function playMusic(boss=false) {
+// Gradius-style 32 eighth-note loop — A major, twin square-wave leads.
+function playMusic() {
   stopMusic(); musicPlaying = true;
-  const s = musicTempo * (boss ? 0.88 : 1);
+  const s = musicTempo;
 
-  // Lead melody: heroic A-E-A arpeggio fanfare opening, runs and leaps throughout
-  const mel = boss ? [
-    'A4','E5','A5','E5', 'F5','E5','D5','C5',
-    'B4','C5','D5','E5', 'A5',null,'G#5','E5',
-    'D5','E5','F5','A5', 'G#5','F5','E5','D5',
-    'C5','E5','A5','B5', 'A5',null,null,null
-  ] : [
+  const mel = [
     'A4','E5','A5','E5', 'F#5','E5','D5','C#5',
     'B4','C#5','D5','E5', 'A5',null,'G#5','E5',
     'D5','E5','F#5','A5', 'G#5','F#5','E5','D5',
     'C#5','E5','A5','B5', 'A5',null,null,null
   ];
-
-  // Second square-wave lead a diatonic third below — the Gradius twin-lead sound
-  const har = boss ? [
-    'F4','C5','F5','C5', 'D5','C5','B4','A4',
-    'G#4','A4','B4','C5', 'F5',null,'E5','C5',
-    'B4','C5','D5','F5', 'E5','D5','C5','B4',
-    'A4','C5','F5','G#5', 'F5',null,null,null
-  ] : [
+  const har = [
     'F#4','C#5','F#5','C#5', 'D5','C#5','B4','A4',
     'G#4','A4','B4','C#5', 'F#5',null,'E5','C#5',
     'B4','C#5','D5','F#5', 'E5','D5','C#5','B4',
     'A4','C#5','F#5','G#5', 'F#5',null,null,null
   ];
-
-  // Bass: root octave bounce following chord changes (stage: A-E-D-A, boss: Am-F-E-Am)
-  const bass = boss
-    ? ['A1','A2','A1','A2', 'F1','F2','F1','F2', 'E1','E2','E1','E2', 'A1','A2','E1','E2']
-    : ['A1','A2','A1','A2', 'E1','E2','E1','E2', 'D1','D2','D1','D2', 'E1','E2','A1','A2'];
+  const bass = ['A1','A2','A1','A2', 'E1','E2','E1','E2', 'D1','D2','D1','D2', 'E1','E2','A1','A2'];
 
   mel.forEach((n,i) => { if(n) mnote(ntof(n), i*s, s*0.85, 0.22); });
   har.forEach((n,i) => { if(n) mnote(ntof(n), i*s, s*0.85, 0.10); });
@@ -209,7 +182,7 @@ function playMusic(boss=false) {
   }
 
   const loopTime = 32*s*1000;
-  if(musicPlaying) setTimeout(()=>{ if(musicPlaying) playMusic(boss); }, loopTime);
+  if(musicPlaying) setTimeout(()=>{ if(musicPlaying) playMusic(); }, loopTime);
 }
 
 function stopMusic() {
@@ -316,14 +289,13 @@ const planet = {
 
 let numPlayers = 1;
 let players = [];
-let asteroids, bullets, boss, particles;
-let score = 0, gameActive = false, bossSpawned = false;
+let asteroids, bullets, particles;
+let score = 0, gameActive = false;
 let keys = {};
 let touchUp=false, touchDown=false, touchLeft=false, touchRight=false;
 let highScore = 0;
 let asteroidTimer = 0;
 let lastTime = 0;
-let gameTime = 0;
 let debugMode = false;
 let paused = false;
 let cave = null;
@@ -347,11 +319,10 @@ function initGame() {
   players = [makePlayer(P1_COLORS, y1)];
   if (numPlayers === 2) players.push(makePlayer(P2_COLORS, H/2 + 60));
 
-  asteroids = []; bullets = []; boss = null; particles = [];
-  score = 0; gameActive = true; bossSpawned = false;
+  asteroids = []; bullets = []; particles = [];
+  score = 0; gameActive = true;
   musicTempo = 0.17;
   asteroidTimer = 0;
-  gameTime = 0;
   cave = null; caveTime = 0;
   shieldPowerup = null; shieldPowerupCooldown = 30000;
   setPaused(false);
@@ -379,10 +350,8 @@ function checkGameOver() {
 function makeCaveSeg(x, segW) {
   return {
     x, phase: Math.random() * Math.PI * 2,
-    topJag: 18 + Math.random() * 28,
-    botJag: 18 + Math.random() * 28,
-    topCracks: Array.from({length:2}, () => ({ ax: Math.random()*segW*0.8, ay: 0, bx: Math.random()*segW*0.6, by: Math.random()*18+4 })),
-    botCracks: Array.from({length:2}, () => ({ ax: Math.random()*segW*0.8, ay: 0, bx: Math.random()*segW*0.6, by: -(Math.random()*18+4) }))
+    topJag: 22 + Math.random() * 30,
+    botJag: 22 + Math.random() * 30
   };
 }
 
@@ -590,28 +559,6 @@ function drawAsteroid(a) {
   ctx.restore();
 }
 
-function drawBoss(b) {
-  ctx.save(); ctx.translate(b.x, b.y);
-  ctx.shadowBlur = 20; ctx.shadowColor = '#aa44ff';
-  ctx.fillStyle = '#662299';
-  ctx.beginPath(); ctx.moveTo(60,0); ctx.lineTo(20,-30); ctx.lineTo(-50,-20); ctx.lineTo(-60,0); ctx.lineTo(-50,20); ctx.lineTo(20,30); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#9933ff';
-  ctx.beginPath(); ctx.moveTo(40,0); ctx.lineTo(10,-15); ctx.lineTo(-20,-10); ctx.lineTo(-20,10); ctx.lineTo(10,15); ctx.closePath(); ctx.fill();
-  ctx.shadowBlur = 0;
-  [-18,0,18].forEach(dy => {
-    ctx.fillStyle = '#ff4488'; ctx.beginPath(); ctx.ellipse(-55,dy,8,5,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#ffaacc'; ctx.beginPath(); ctx.ellipse(-63,dy,5,3,0,0,Math.PI*2); ctx.fill();
-  });
-  ctx.fillStyle = '#ff0044'; ctx.shadowBlur = 10; ctx.shadowColor = '#ff0044';
-  ctx.beginPath(); ctx.arc(30,-5,8,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle = '#ffaaaa'; ctx.beginPath(); ctx.arc(32,-7,3,0,Math.PI*2); ctx.fill();
-  ctx.shadowBlur = 0;
-  const barW = 120;
-  ctx.fillStyle = '#330022'; ctx.fillRect(-barW/2,-50,barW,8);
-  ctx.fillStyle = '#ff4488'; ctx.fillRect(-barW/2,-50,barW*(b.hp/b.maxHp),8);
-  ctx.strokeStyle = '#aa2266'; ctx.lineWidth = 1; ctx.strokeRect(-barW/2,-50,barW,8);
-  ctx.restore();
-}
 
 function drawBullet(bl) {
   if (debugMode) {
@@ -710,15 +657,6 @@ function spawnAsteroid() {
   });
 }
 
-function spawnBoss() {
-  bossSpawned = true;
-  bossWarning.style.display = 'block';
-  setTimeout(() => {
-    bossWarning.style.display = 'none';
-    boss = { x: W + 80, y: H/2, hp: 20, maxHp: 20, vx: -0.8, vy: 0 };
-    playMusic(true);
-  }, 2000);
-}
 
 function heartStr(n, emoji) {
   n = Math.max(0, n);
@@ -892,7 +830,6 @@ function gameLoop(ts) {
   });
 
   score += dt * 0.01;
-  gameTime += dt;
   musicTempo = Math.max(0.13, 0.17 - score * 0.0002);
 
   // Asteroid spawning
@@ -963,49 +900,7 @@ function gameLoop(ts) {
     }
   }
 
-  if (!bossSpawned && gameTime > 65000) spawnBoss();
   if (!cave && score > 256) initCave();
-
-  // Boss — moves left, tracks average Y of alive players
-  if (boss) {
-    boss.x += boss.vx;
-    const alivePs = players.filter(p => p.alive);
-    if (alivePs.length > 0) {
-      const targetY = alivePs.reduce((s, p) => s + p.y, 0) / alivePs.length;
-      boss.vy += (targetY - boss.y) * 0.008;
-      boss.vy *= 0.92;
-    }
-    boss.y += boss.vy;
-
-    if (boss.x < -150) {
-      spawnExplosion(boss.x + 60, boss.y, '#ff44aa');
-      boss = null; score += 50;
-    } else {
-      drawBoss(boss);
-      players.forEach(p => {
-        if (!p.alive || p.invincible > 0) return;
-        if (Math.hypot(boss.x - p.x, boss.y - p.y) < 52) {
-          if (p.shield > 0) { sfx('shield-bounce'); spawnShieldBounce(p.x, p.y); return; }
-          sfx('hit'); spawnExplosion(p.x, p.y, '#ff44aa');
-          p.lives--; p.invincible = 120; updateHUD();
-          if (p.lives <= 0) { p.alive = false; checkGameOver(); }
-        }
-      });
-      asteroids = asteroids.filter(a => {
-        if (!boss) return true;
-        if (Math.hypot(a.x-boss.x, a.y-boss.y) < a.size+50) {
-          spawnExplosion(a.x, a.y, '#aa44ff'); boss.hp--;
-          if (boss && boss.hp <= 0) {
-            spawnExplosion(boss.x, boss.y, '#ff44aa');
-            spawnExplosion(boss.x+30, boss.y-20, '#ffaa44');
-            boss = null; score += 50;
-          }
-          return false;
-        }
-        return true;
-      });
-    }
-  }
 
   if (cave) drawCaveWalls();
 
@@ -1069,13 +964,11 @@ function gameLoop(ts) {
         p2: players[1] ? serializePlayer(players[1]) : null,
         asteroids: asteroids.map(a => ({ x:a.x, y:a.y, rot:a.rot, size:a.size, pts:a.pts, cracks:a.cracks, craters:a.craters })),
         bullets: bullets.map(b => ({ x:b.x, y:b.y, vx:b.vx, vy:b.vy })),
-        boss: boss ? { x:boss.x, y:boss.y, hp:boss.hp, maxHp:boss.maxHp } : null,
         particles: particles.map(p => ({ x:p.x, y:p.y, life:p.life, color:p.color, size:p.size })),
         score, gameActive,
         cave: cave ? { gap:cave.gap, center:cave.center, slideOffset:cave.slideOffset, segs:cave.segs, turrets:cave.turrets } : null,
         caveTime,
-        shieldPowerup: shieldPowerup ? { x:shieldPowerup.x, y:shieldPowerup.y } : null,
-        bossWarning: bossWarning.style.display === 'block'
+        shieldPowerup: shieldPowerup ? { x:shieldPowerup.x, y:shieldPowerup.y } : null
       });
     } catch(sendErr) {}
   }
@@ -1196,12 +1089,8 @@ function renderJoinerFrame(dt, ts) {
   // Sync cave globals so drawCaveWalls() works
   if (st.cave) { cave = st.cave; caveTime = st.caveTime; } else { cave = null; }
 
-  // Boss warning
-  bossWarning.style.display = st.bossWarning ? 'block' : 'none';
-
   // Draw game objects from host state
   st.asteroids.forEach(a => drawAsteroid(a));
-  if (st.boss) drawBoss(st.boss);
   if (st.cave) drawCaveWalls();
   st.bullets.forEach(bl => drawBullet(bl));
 
